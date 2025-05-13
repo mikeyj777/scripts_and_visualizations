@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ephemeral Flow - Dynamic Res / Split Layout</title>
+    <style>
+        /* ... (keep previous styles: html, body, scrollbar, input, select, button) ... */
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            background-color: #111827; 
+            font-family: 'Arial', sans-serif;
+            color: #F9FAFB;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #374151; }
+        ::-webkit-scrollbar-thumb { background: #6B7280; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+         input[type=range] { cursor: pointer; width: 100%; }
+         select { cursor: pointer; width: 100%; padding: 8px; background: #4B5563; color: #F9FAFB; border: 1px solid #6B7280; border-radius: 4px; font-size: 13px; }
+         button { background: none; border: none; padding: 8px; cursor: pointer; color: #F9FAFB; transform-origin: center; transition: transform 0.1s ease-out, background-color 0.15s ease; border-radius: 4px; }
+         button:hover { background-color: rgba(255, 255, 255, 0.1); }
+         button:active { transform: scale(0.95); }
+    </style>
+</head>
+<body>
+
+    <!-- Main container using flexbox row layout -->
+    <div id="artifactContainer" style="width: 100vw; height: 100vh; display: flex; flex-direction: row;">
+        
+        <!-- Visualization Area (2/3 width) -->
+        <div id="visualizationArea" style="flex: 2; height: 100%; position: relative; background: #111827;">
+            <canvas id="fluidCanvas" style="display: block; width: 100%; height: 100%; cursor: crosshair;"></canvas>
+            <div id="perfWarning" style="position: absolute; top: 10px; left: 10px; background: rgba(239, 68, 68, 0.8); color: white; padding: 5px 10px; font-size: 12px; border-radius: 4px; display: none;">
+                Low FPS detected. Consider lowering resolution.
+            </div>
+        </div>
+
+        <!-- Control Area (1/3 width) -->
+        <div id="controlArea" style="flex: 1; height: 100%; background: #374151; border-left: 1px solid #4B5563; padding: 20px; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: 18px;">
+            
+            <h2 style="margin: 0 0 10px; font-size: 18px; text-align: center; border-bottom: 1px solid #6B7280; padding-bottom: 10px;">Controls & Parameters</h2>
+
+            <!-- Basic Controls Group -->
+            <div style="display: flex; justify-content: space-around; gap: 10px; border-bottom: 1px solid #4B5563; padding-bottom: 18px;">
+                 <button id="playPauseButton" title="Play/Pause Simulation"></button>
+                 <button id="resetButton" title="Reset Simulation"></button>
+            </div>
+            
+             <!-- NEW Resolution Slider -->
+             <div>
+                <label for="resolutionSlider" style="display: block; font-size: 13px; margin-bottom: 5px;">Resolution (<span id="resolutionValue"></span>)</label>
+                <input type="range" id="resolutionSlider" min="64" max="640" step="64" value="320" title="Simulation Grid Size (Higher = Slower)">
+            </div>
+            
+            <!-- Parameter Controls Group -->
+            <div>
+                <label for="viscositySlider" style="display: block; font-size: 13px; margin-bottom: 5px;">Viscosity (<span id="viscosityValue"></span>)</label>
+                <input type="range" id="viscositySlider" min="0" max="0.0001" step="0.000001" value="0.00001" title="Fluid resistance to flow">
+            </div>
+            
+            <div>
+                <label for="diffusionSlider" style="display: block; font-size: 13px; margin-bottom: 5px;">Diffusion (<span id="diffusionValue"></span>)</label>
+                <input type="range" id="diffusionSlider" min="0" max="0.0001" step="0.000001" value="0.000005" title="How quickly density spreads out">
+            </div>
+
+            <div>
+                <label for="forceSlider" style="display: block; font-size: 13px; margin-bottom: 5px;">Interaction Force (<span id="forceValue"></span>)</label>
+                <input type="range" id="forceSlider" min="1" max="30" step="0.5" value="10" title="Strength of mouse/touch interaction velocity"> 
+            </div>
+
+            <div>
+                <label for="sourceSlider" style="display: block; font-size: 13px; margin-bottom: 5px;">Density Amount (<span id="sourceValue"></span>)</label>
+                <input type="range" id="sourceSlider" min="50" max="500" step="10" value="250" title="Amount of density added per interaction">
+            </div>
+
+             <div>
+                <label for="colorSelect" style="display: block; font-size: 13px; margin-bottom: 5px;">Color Theme</label>
+                <select id="colorSelect" title="Visual color scheme for density">
+                    <option value="ink">Living Ink (Blues)</option>
+                    <option value="smoke">Whispering Smoke (Grays)</option>
+                    <option value="plasma">Plasma Flow (Purples/Pinks)</option>
+                    <option value="ember">Ember Drift (Oranges/Reds)</option>
+                </select>
+            </div>
+            
+             <!-- Performance Note -->
+             <div style="font-size: 11px; color: #9CA3AF; border-top: 1px solid #4B5563; padding-top: 15px; margin-top: 10px;">
+                <b>Note:</b> Simulation running at <span id="currentResNote"></span> resolution. Higher resolutions significantly impact performance. Solver iterations: {ITERATIONS_VALUE}.
+             </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        'use strict';
+
+        // --- 1. Constants and Configuration ---
+        // GRID_SIZE is now dynamic, defined by the slider's default
+        const DT = 0.1; 
+        const ITERATIONS = 4; // Keep iterations low for performance
+        
+        // Replace placeholder in the note text
+        document.body.innerHTML = document.body.innerHTML.replace(/{ITERATIONS_VALUE}/g, ITERATIONS);
+
+        const COLORS = { /* ... (keep colors) ... */ 
+            background: '#111827', panelBackground: '#374151', containerBackground: '#1F2937',
+            borderColor: '#4B5563', textColor: '#F9FAFB', iconDefault: '#F9FAFB', iconMuted: '#D1D5DB',
+        };
+        const ICON_COLOR = COLORS.iconDefault;
+        const ICON_SIZE = 24;
+
+        const COLOR_PALETTES = { /* ... (keep palettes) ... */ 
+            ink: (d) => {const i=Math.pow(Math.min(1,Math.max(0,d*2)),.7); return `rgb(${Math.floor(i*50)},${Math.floor(i*120)},${Math.floor(i*255)})`;},
+            smoke: (d) => {const i=Math.floor(Math.pow(Math.min(1,Math.max(0,d)),.8)*255); return `rgb(${i},${i},${i})`;},
+            plasma: (d) => {const i=Math.pow(Math.min(1,Math.max(0,d*1.5)),.75); return `rgb(${Math.floor(i*220)},${Math.floor(i*50)},${Math.floor(i*200)})`;},
+            ember: (d) => {const i=Math.pow(Math.min(1,Math.max(0,d*1.8)),.6); return `rgb(${Math.floor(i*255)},${Math.floor(i*(100+d*50))},${Math.floor(i*30)})`;}
+        };
+
+
+        // --- 2. SVG Icon System (Unchanged) ---
+        const IconPaths = { /* ... (keep paths: play, pause, reset) ... */ 
+             play: 'M8 5v14l11-7z',
+            pause: 'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
+            reset: 'M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z',
+        };
+        function createIcon(name, size = ICON_SIZE, color = ICON_COLOR) { /* ... (keep function) ... */ 
+             const svgNS = "http://www.w3.org/2000/svg"; const svg = document.createElementNS(svgNS, "svg");
+             svg.setAttribute('viewBox', '0 0 24 24'); svg.style.width = `${size}px`; svg.style.height = `${size}px`;
+             svg.style.fill = color; svg.style.display = 'block'; svg.style.verticalAlign = 'middle';
+             const path = document.createElementNS(svgNS, "path"); path.setAttribute('d', IconPaths[name] || ''); svg.appendChild(path); return svg;
+        }
+
+        // --- 3. Fluid Simulation Logic (Unchanged structure) ---
+        function FluidSquare(size, diffusion, viscosity, dt) { /* ... (keep constructor, uses passed size) ... */ 
+             this.size = size; this.dt = dt; this.diff = diffusion; this.visc = viscosity; 
+             const N = this.size; const arraySize = (N + 2) * (N + 2);
+             console.log(`Allocating FluidSquare arrays (${N}x${N}, ${arraySize} elements each)...`);
+             try {
+                 this.s = new Float32Array(arraySize).fill(0); this.density = new Float32Array(arraySize).fill(0); 
+                 this.Vx = new Float32Array(arraySize).fill(0); this.Vy = new Float32Array(arraySize).fill(0); 
+                 this.Vx0 = new Float32Array(arraySize).fill(0); this.Vy0 = new Float32Array(arraySize).fill(0); 
+                 this._p = new Float32Array(arraySize).fill(0); this._div = new Float32Array(arraySize).fill(0);
+                 console.log(`Arrays allocated successfully.`);
+             } catch (e) { console.error("Memory allocation failed.", e); alert("Error: Could not allocate memory for simulation."); throw e; }
+             this.IX = (x, y) => { const ix = Math.max(0, Math.min(N + 1, Math.floor(x))); const iy = Math.max(0, Math.min(N + 1, Math.floor(y))); return ix + iy * (N + 2); };
+        }
+        FluidSquare.prototype.step = function () { /* ... (keep method, uses internal this.size) ... */ 
+            const N = this.size; const visc = this.visc; const diff = this.diff; const dt = this.dt; const Vx = this.Vx; const Vy = this.Vy; const Vx0 = this.Vx0; const Vy0 = this.Vy0; const s = this.s; const density = this.density; const p = this._p; const div = this._div;
+            diffuse(1, Vx0, Vx, visc, dt, ITERATIONS, N, this.IX); diffuse(2, Vy0, Vy, visc, dt, ITERATIONS, N, this.IX);
+            project(Vx0, Vy0, p, div, ITERATIONS, N, this.IX); 
+            advect(1, Vx, Vx0, Vx0, Vy0, dt, N, this.IX); advect(2, Vy, Vy0, Vx0, Vy0, dt, N, this.IX);
+            project(Vx, Vy, p, div, ITERATIONS, N, this.IX); 
+            diffuse(0, s, density, diff, dt, ITERATIONS, N, this.IX);
+            advect(0, density, s, Vx, Vy, dt, N, this.IX);
+            fadeDensity(density, 0.002, N, this.IX); 
+         };
+        FluidSquare.prototype.addDensity = function (x, y, amount) { /* ... (keep method) ... */ 
+             const N = this.size; if (x < 1 || x > N || y < 1 || y > N) return; this.density[this.IX(x, y)] += amount; };
+        FluidSquare.prototype.addVelocity = function (x, y, amountX, amountY) { /* ... (keep method) ... */ 
+            const N = this.size; if (x < 1 || x > N || y < 1 || y > N) return; const index = this.IX(x, y); this.Vx[index] += amountX; this.Vy[index] += amountY; };
+
+        // --- Stable Fluids Core Functions (Unchanged logic) ---
+        function set_bnd(b, x, N, IX) { /* ... */ }
+        function lin_solve(b, x, x0, a, c, iter, N, IX) { /* ... */ }
+        function diffuse(b, x, x0, diff, dt, iter, N, IX) { /* ... */ }
+        function project(velocX, velocY, p, div, iter, N, IX) { /* ... */ }
+        function advect(b, d, d0, velocX, velocY, dt, N, IX) { /* ... */ }
+        function fadeDensity(density, rate, N, IX) { /* ... */ }
+
+        // --- Re-implementing the unchanged Stable Fluids functions for completeness ---
+        function set_bnd(b, x, N, IX) { for (let i = 1; i <= N; i++) { x[IX(0, i)] = b === 1 ? -x[IX(1, i)] : x[IX(1, i)]; x[IX(N + 1, i)] = b === 1 ? -x[IX(N, i)] : x[IX(N, i)]; x[IX(i, 0)] = b === 2 ? -x[IX(i, 1)] : x[IX(i, 1)]; x[IX(i, N + 1)] = b === 2 ? -x[IX(i, N)] : x[IX(i, N)]; } x[IX(0, 0)] = 0.5 * (x[IX(1, 0)] + x[IX(0, 1)]); x[IX(0, N + 1)] = 0.5 * (x[IX(1, N + 1)] + x[IX(0, N)]); x[IX(N + 1, 0)] = 0.5 * (x[IX(N, 0)] + x[IX(N + 1, 1)]); x[IX(N + 1, N + 1)] = 0.5 * (x[IX(N, N + 1)] + x[IX(N + 1, N)]); }
+        function lin_solve(b, x, x0, a, c, iter, N, IX) { const cRecip = 1.0 / c; for (let k = 0; k < iter; k++) { for (let j = 1; j <= N; j++) { for (let i = 1; i <= N; i++) { const idx_ij = IX(i, j); const idx_ip1j = IX(i+1, j); const idx_im1j = IX(i-1, j); const idx_ijp1 = IX(i, j+1); const idx_ijm1 = IX(i, j-1); x[idx_ij] = (x0[idx_ij] + a * (x[idx_ip1j] + x[idx_im1j] + x[idx_ijp1] + x[idx_ijm1])) * cRecip; } } set_bnd(b, x, N, IX); } }
+        function diffuse(b, x, x0, diff, dt, iter, N, IX) { const a = dt * diff * N * N; lin_solve(b, x, x0, a, 1 + 4 * a, iter, N, IX); }
+        function project(velocX, velocY, p, div, iter, N, IX) { for (let j = 1; j <= N; j++) { for (let i = 1; i <= N; i++) { const idx_ij = IX(i,j); const idx_ip1j = IX(i+1, j); const idx_im1j = IX(i-1, j); const idx_ijp1 = IX(i, j+1); const idx_ijm1 = IX(i, j-1); div[idx_ij] = -0.5 * ( velocX[idx_ip1j] - velocX[idx_im1j] + velocY[idx_ijp1] - velocY[idx_ijm1] ) / N; p[idx_ij] = 0; } } set_bnd(0, div, N, IX); set_bnd(0, p, N, IX); lin_solve(0, p, div, 1, 4, iter, N, IX); for (let j = 1; j <= N; j++) { for (let i = 1; i <= N; i++) { const idx_ij = IX(i,j); const idx_ip1j = IX(i+1, j); const idx_im1j = IX(i-1, j); const idx_ijp1 = IX(i, j+1); const idx_ijm1 = IX(i, j-1); velocX[idx_ij] -= 0.5 * (p[idx_ip1j] - p[idx_im1j]) * N; velocY[idx_ij] -= 0.5 * (p[idx_ijp1] - p[idx_ijm1]) * N; } } set_bnd(1, velocX, N, IX); set_bnd(2, velocY, N, IX); }
+        function advect(b, d, d0, velocX, velocY, dt, N, IX) { let i0, i1, j0, j1; const dtx = dt * N; const dty = dt * N; let s0, s1, t0, t1; let tmp1, tmp2, x, y; const Nfloat = N; for (let j = 1; j <= N; j++) { for (let i = 1; i <= N; i++) { const idx_ij = IX(i, j); tmp1 = dtx * velocX[idx_ij]; tmp2 = dty * velocY[idx_ij]; x = i - tmp1; y = j - tmp2; if (x < 0.5) x = 0.5; if (x > Nfloat + 0.5) x = Nfloat + 0.5; i0 = Math.floor(x); i1 = i0 + 1; if (y < 0.5) y = 0.5; if (y > Nfloat + 0.5) y = Nfloat + 0.5; j0 = Math.floor(y); j1 = j0 + 1; s1 = x - i0; s0 = 1.0 - s1; t1 = y - j0; t0 = 1.0 - t1; const i0i = i0; const i1i = i1; const j0i = j0; const j1i = j1; const idx_i0j0 = IX(i0i, j0i); const idx_i0j1 = IX(i0i, j1i); const idx_i1j0 = IX(i1i, j0i); const idx_i1j1 = IX(i1i, j1i); if (idx_i0j0 < 0 || idx_i0j1 < 0 || idx_i1j0 < 0 || idx_i1j1 < 0 || idx_i0j0 >= d0.length || idx_i0j1 >= d0.length || idx_i1j0 >= d0.length || idx_i1j1 >= d0.length) { d[idx_ij] = d0[idx_ij]; continue; } d[idx_ij] = s0 * (t0 * d0[idx_i0j0] + t1 * d0[idx_i0j1]) + s1 * (t0 * d0[idx_i1j0] + t1 * d0[idx_i1j1]); } } set_bnd(b, d, N, IX); }
+        function fadeDensity(density, rate, N, IX) { const factor = 1.0 - rate; for (let i = 0; i <= N + 1; i++) { for (let j = 0; j <= N + 1; j++) { const index = IX(i,j); density[index] *= factor; if (density[index] < 0.001) { density[index] = 0; } } } }
+
+
+        // --- 4. Canvas Rendering ---
+        const canvas = document.getElementById('fluidCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); 
+        let currentPalette = COLOR_PALETTES.ink; 
+        let lastFrameTime = 0; let frameCount = 0; let fps = 0; let showPerfWarning = false;
+
+        function renderDensity(fluid) {
+            if (!fluid) return; // Don't render if fluid object doesn't exist
+            const now = performance.now();
+            const deltaTime = now - lastFrameTime;
+            if (deltaTime < 10) { // Basic frame skipping if running too fast (unlikely here)
+                 // return; 
+            }
+            lastFrameTime = now;
+            frameCount++;
+            if (frameCount > 30) {
+                 fps = Math.round(1000 / (deltaTime)); // Instantaneous FPS approx.
+                 frameCount = 0; 
+                 showPerfWarning = fps < 25; // Slightly higher threshold for warning
+                 document.getElementById('perfWarning').style.display = showPerfWarning ? 'block' : 'none';
+             }
+
+            if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+                 canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight;
+                 if(canvas.width === 0 || canvas.height === 0) return; 
+            }
+            
+            const N = fluid.size; // Use size from the current fluid object
+            const cellWidth = canvas.width / N;
+            const cellHeight = canvas.height / N;
+            
+            ctx.fillStyle = COLORS.background;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const maxDensityEstimate = 1.0; 
+            const drawThreshold = 0.001; 
+            const ceiledCellWidth = Math.max(1, Math.ceil(cellWidth)); 
+            const ceiledCellHeight = Math.max(1, Math.ceil(cellHeight));
+
+            // Store fillStyle to avoid setting it unnecessarily if color is the same
+            let lastFillStyle = null; 
+
+            for (let j = 0; j < N; j++) {
+                for (let i = 0; i < N; i++) {
+                    const density = fluid.density[fluid.IX(i + 1, j + 1)]; 
+                    if (density > drawThreshold) { 
+                        const x = i * cellWidth;
+                        const y = j * cellHeight;
+                        const normalizedDensity = Math.min(density / maxDensityEstimate, 1.0);
+                        const newFillStyle = currentPalette(normalizedDensity);
+                        if (newFillStyle !== lastFillStyle) { // Optimization: only set fillStyle if it changes
+                             ctx.fillStyle = newFillStyle;
+                             lastFillStyle = newFillStyle;
+                        }
+                        ctx.fillRect(Math.floor(x), Math.floor(y), ceiledCellWidth, ceiledCellHeight); 
+                    }
+                }
+            }
+        }
+
+
+        // --- 5. Interaction and State Management ---
+        let fluid = null; // Initialize in init()
+        let currentGridSize = 320; // Default, will be set by slider value in init
+        let isRunning = true;
+        let mouseX = 0, mouseY = 0, prevMouseX = 0, prevMouseY = 0;
+        let isMouseDown = false;
+        let animationFrameId = null;
+        
+        let interactionForce = 10; 
+        let densityAmount = 250; 
+
+        // DOM Elements
+        const playPauseButton = document.getElementById('playPauseButton');
+        const resetButton = document.getElementById('resetButton');
+        const resolutionSlider = document.getElementById('resolutionSlider'); // New slider
+        const viscositySlider = document.getElementById('viscositySlider');
+        const diffusionSlider = document.getElementById('diffusionSlider');
+        const forceSlider = document.getElementById('forceSlider');
+        const sourceSlider = document.getElementById('sourceSlider');
+        const colorSelect = document.getElementById('colorSelect');
+        // Value display spans
+        const resolutionValueSpan = document.getElementById('resolutionValue'); // New span
+        const viscosityValueSpan = document.getElementById('viscosityValue');
+        const diffusionValueSpan = document.getElementById('diffusionValue');
+        const forceValueSpan = document.getElementById('forceValue');
+        const sourceValueSpan = document.getElementById('sourceValue');
+        const currentResNoteSpan = document.getElementById('currentResNote'); // Span for note
+
+
+        // --- Utility: Debounce --- (Unchanged)
+        function debounce(func, wait) { /* ... */ 
+            let timeout; return function(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); }; }
+
+
+        // --- 6. Animation Loop ---
+        function gameLoop() {
+             if (!fluid) { // Check if fluid exists
+                 if (animationFrameId) cancelAnimationFrame(animationFrameId); // Stop loop if fluid failed
+                 animationFrameId = null;
+                 return;
+             }
+            
+            // const stepStartTime = performance.now(); // Optional perf timing
+
+            if (isRunning) {
+                const dx = mouseX - prevMouseX;
+                const dy = mouseY - prevMouseY;
+
+                if (isMouseDown && (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1 || densityAmount > 0)) { 
+                    // Use currentGridSize for mapping
+                    const gridX = (mouseX / canvas.width) * currentGridSize + 1; 
+                    const gridY = (mouseY / canvas.height) * currentGridSize + 1;
+                    
+                    const radius = Math.max(1, Math.floor(currentGridSize / 100)); 
+                    for (let i = -radius; i <= radius; i++) {
+                        for (let j = -radius; j <= radius; j++) {
+                             let distSq = i*i + j*j;
+                             if (distSq <= radius*radius) { 
+                                 let falloff = Math.exp(-distSq / (radius * radius * 0.5)); 
+                                 // Use fluid.addDensity which internally uses fluid.size
+                                 fluid.addDensity(gridX + i, gridY + j, densityAmount * falloff * 0.1 / (radius+1) ); 
+                             }
+                        }
+                    }
+                    
+                    // Force scaling based on currentGridSize relative to a baseline (e.g., 64)
+                    const forceScaleFactor = Math.max(1, currentGridSize / 64); 
+                    // Use fluid.addVelocity internally uses fluid.size
+                    fluid.addVelocity(gridX, gridY, dx * interactionForce * forceScaleFactor * 0.1, dy * interactionForce * forceScaleFactor * 0.1); 
+                }
+                // Call step on the current fluid object
+                fluid.step(); 
+                // const stepEndTime = performance.now(); // Optional perf timing
+                // console.log(`Step time: ${(stepEndTime - stepStartTime).toFixed(1)} ms`); 
+            }
+
+            renderDensity(fluid); // Render the current fluid state
+
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- 7. Event Listeners and Controls ---
+
+        function updateSliderValues() {
+            if(!resolutionSlider) return; // Ensure elements exist
+            const resVal = parseInt(resolutionSlider.value);
+            resolutionValueSpan.textContent = `${resVal}x${resVal}`;
+            viscosityValueSpan.textContent = parseFloat(viscositySlider.value).toExponential(1);
+            diffusionValueSpan.textContent = parseFloat(diffusionSlider.value).toExponential(1);
+            forceValueSpan.textContent = parseFloat(forceSlider.value).toFixed(1);
+            sourceValueSpan.textContent = parseInt(sourceSlider.value);
+            currentResNoteSpan.textContent = `${resVal}x${resVal}`; // Update note span
+        }
+        
+        function resetFluidSimulation() {
+             console.log("Resetting fluid simulation...");
+             // Read CURRENT values from sliders, including the new resolution
+             const newSize = parseInt(resolutionSlider.value);
+             const diff = parseFloat(diffusionSlider.value);
+             const visc = parseFloat(viscositySlider.value);
+             
+             // Stop the old animation loop temporarily if running
+             let wasRunning = isRunning;
+             if (animationFrameId) {
+                 cancelAnimationFrame(animationFrameId);
+                 animationFrameId = null;
+                 isRunning = false; // Temporarily pause
+             }
+              
+             // Clear previous fluid object (allow garbage collection)
+             fluid = null; 
+             
+             try {
+                 currentGridSize = newSize; // Update the global tracking variable
+                 fluid = new FluidSquare(currentGridSize, diff, visc, DT);
+                 
+                 // Add initial pulse
+                 const centerX = Math.floor(currentGridSize / 2) + 1;
+                 const centerY = Math.floor(currentGridSize / 2) + 1;
+                 // Use current density slider value for initial pulse size?
+                 const initialDensity = parseFloat(sourceSlider.value) * 1.5; 
+                 fluid.addDensity(centerX, centerY, initialDensity);
+                 fluid.addVelocity(centerX, centerY, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
+                 
+                 console.log(`Simulation reset to ${currentGridSize}x${currentGridSize}`);
+                 
+                 // Restart animation loop if it was running before reset
+                 isRunning = wasRunning; 
+                 if (isRunning) {
+                      playPauseButton.innerHTML = ''; 
+                      playPauseButton.appendChild(createIcon('pause'));
+                      lastFrameTime = performance.now();
+                      animationFrameId = requestAnimationFrame(gameLoop);
+                 } else {
+                      playPauseButton.innerHTML = ''; 
+                      playPauseButton.appendChild(createIcon('play'));
+                       // Render one frame immediately if paused to show the reset state
+                      renderDensity(fluid); 
+                 }
+                 
+             } catch (e) {
+                 console.error("Failed to reset fluid simulation (likely memory allocation failed).", e);
+                 fluid = null; 
+                 currentGridSize = 0; // Indicate failure state
+                 alert(`Error: Could not reset simulation to ${newSize}x${newSize} due to memory issues.`);
+                 // Ensure UI reflects failure
+                 playPauseButton.innerHTML = ''; 
+                 playPauseButton.appendChild(createIcon('play')); // Show as paused
+                 isRunning = false;
+                 // Optionally disable controls or show error message in control panel
+             }
+             updateSliderValues(); // Update display after attempt
+        }
+
+
+        function setupControls() {
+            // Initial Icons
+            playPauseButton.appendChild(createIcon(isRunning ? 'pause' : 'play'));
+            resetButton.appendChild(createIcon('reset'));
+
+            // Play/Pause Button
+            playPauseButton.addEventListener('click', () => {
+                isRunning = !isRunning;
+                playPauseButton.innerHTML = ''; 
+                playPauseButton.appendChild(createIcon(isRunning ? 'pause' : 'play'));
+                 if (isRunning && !animationFrameId && fluid) { 
+                    lastFrameTime = performance.now(); 
+                    animationFrameId = requestAnimationFrame(gameLoop);
+                 } else if (!isRunning && animationFrameId) {
+                     cancelAnimationFrame(animationFrameId);
+                     animationFrameId = null;
+                 }
+            });
+
+            // Reset Button (calls the reset function)
+            resetButton.addEventListener('click', resetFluidSimulation);
+
+            // Resolution Slider - Use 'change' event!
+            resolutionSlider.addEventListener('change', () => {
+                 // No need to update value display here, resetFluidSimulation will call updateSliderValues
+                 resetFluidSimulation(); 
+            });
+             // Also update display on 'input' for immediate feedback while dragging
+             resolutionSlider.addEventListener('input', updateSliderValues); 
+
+
+            // Other Sliders (use 'input' for live update of parameters that don't require full reset)
+            viscositySlider.addEventListener('input', (e) => { if(fluid) fluid.visc = parseFloat(e.target.value); updateSliderValues(); });
+            diffusionSlider.addEventListener('input', (e) => { if(fluid) fluid.diff = parseFloat(e.target.value); updateSliderValues(); });
+            forceSlider.addEventListener('input', (e) => { interactionForce = parseFloat(e.target.value); updateSliderValues(); });
+            sourceSlider.addEventListener('input', (e) => { densityAmount = parseFloat(e.target.value); updateSliderValues(); });
+            
+            colorSelect.addEventListener('change', (e) => {
+                 currentPalette = COLOR_PALETTES[e.target.value] || COLOR_PALETTES.ink;
+                 if (!isRunning && fluid) renderDensity(fluid); // Redraw if paused
+            });
+
+            // Canvas Interaction (Mouse & Touch - Unchanged setup)
+            canvas.addEventListener('mousedown', (e) => { isMouseDown = true; updateMousePosition(e); prevMouseX = mouseX; prevMouseY = mouseY; });
+            canvas.addEventListener('mouseup', () => isMouseDown = false);
+            canvas.addEventListener('mouseleave', () => isMouseDown = false); 
+            canvas.addEventListener('mousemove', (e) => { if (isMouseDown) { updateMousePosition(e); } });
+            canvas.addEventListener('touchstart', (e) => { e.preventDefault(); if (e.touches.length > 0) { isMouseDown = true; updateMousePosition(e.touches[0]); prevMouseX = mouseX; prevMouseY = mouseY; } }, { passive: false }); 
+            canvas.addEventListener('touchend', (e) => { e.preventDefault(); isMouseDown = false; });
+            canvas.addEventListener('touchcancel', (e) => { e.preventDefault(); isMouseDown = false; });
+            canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if (e.touches.length > 0) { updateMousePosition(e.touches[0]); } }, { passive: false });
+
+            // Window Resize Handler
+            window.addEventListener('resize', debounce(handleResize, 200)); 
+        }
+        
+        function updateMousePosition(e) {
+             const rect = canvas.getBoundingClientRect(); 
+             mouseX = e.clientX - rect.left;
+             mouseY = e.clientY - rect.top;
+        }
+
+        function handleResize() {
+            console.log('Resizing canvas...');
+            if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+                 canvas.width = canvas.clientWidth;
+                 canvas.height = canvas.clientHeight;
+            }
+             if (!isRunning && fluid) { 
+                renderDensity(fluid);
+             }
+        }
+
+
+        // --- 8. Initialization ---
+        function init() {
+            // Set initial slider values first (needed by resetFluidSimulation)
+             updateSliderValues(); 
+             
+             // Attempt initial simulation creation using default slider values
+             resetFluidSimulation(); // This now handles creation and initial state
+
+             if (fluid) { // Only setup controls and start loop if initial reset was successful
+                 setupControls();
+                 handleResize(); // Set initial canvas buffer size
+
+                 if(animationFrameId) cancelAnimationFrame(animationFrameId); 
+                 lastFrameTime = performance.now(); 
+                 animationFrameId = requestAnimationFrame(gameLoop);
+
+                 console.log(`Ephemeral Flow (Dynamic Res ${currentGridSize}x${currentGridSize} / Split Layout) Initialized.`);
+             } else {
+                 console.error("Initialization failed. Fluid object could not be created.");
+                 // Error message should already be shown by resetFluidSimulation failure
+             }
+        }
+
+        // --- Run Initialization ---
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+    </script>
+</body>
+</html>
