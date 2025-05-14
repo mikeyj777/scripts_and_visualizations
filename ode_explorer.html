@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ODE Explorer: Visualizing Numerical Journeys</title>
+    <style>
+        /* --- Global Styles & Resets --- */
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            background-color: #F0F4F8; /* Light, clean background */
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Modern, readable font */
+            color: #334155; /* Dark Slate Gray for text */
+        }
+
+        /* --- Main Layout --- */
+        #artifactContainer {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column; /* Controls at top, then plots */
+        }
+
+        #controlPanel {
+            background: #FFFFFF; 
+            padding: 10px 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            z-index: 10;
+            display: flex;
+            flex-wrap: wrap; /* Allow controls to wrap */
+            gap: 15px; /* Spacing between control groups */
+            align-items: flex-start;
+        }
+        
+        .controlGroup {
+            padding: 5px;
+            border-radius: 4px;
+            min-width: 180px; /* Min width for control groups */
+        }
+        .controlGroup h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #475569; /* Medium Slate Gray */
+        }
+        .controlGroup label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 3px;
+            color: #64748B; /* Cool Gray */
+        }
+        .controlGroup label .valueDisplay {
+            float: right;
+            font-weight: 500;
+            color: #334155;
+        }
+        .controlGroup input[type=range], .controlGroup input[type=number], .controlGroup select {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 8px;
+            padding: 6px 8px;
+            border: 1px solid #CBD5E1; /* Light Gray border */
+            border-radius: 4px;
+            font-size: 12px;
+            background-color: #F8FAFC;
+        }
+         .controlGroup input[type=number] { -moz-appearance: textfield; } /* Remove spinners for Firefox */
+         .controlGroup input[type=number]::-webkit-outer-spin-button,
+         .controlGroup input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        .controlGroup button {
+            background: #3B82F6; /* Blue */
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background-color 0.15s ease;
+            margin-right: 5px;
+        }
+        .controlGroup button:hover { background: #2563EB; }
+        .controlGroup button.secondary { background: #64748B; }
+        .controlGroup button.secondary:hover { background: #475569; }
+
+
+        #visualizationArea {
+            flex-grow: 1; /* Takes remaining space */
+            display: flex;
+            flex-direction: row; /* Main plot and detail view side-by-side */
+            padding: 10px;
+            gap: 10px;
+            background-color: #E2E8F0; /* Slightly off-white plot background area */
+        }
+
+        .plotContainer {
+            background: #FFFFFF;
+            border: 1px solid #D1D5DB; /* Border for plots */
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            overflow: hidden; /* Clip canvas content */
+            position: relative; /* For overlaying text */
+        }
+        .plotContainer canvas { display: block; width: 100%; height: 100%; }
+        .plotTitle {
+            position: absolute;
+            top: 8px; left: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #475569;
+            background-color: rgba(255,255,255,0.8);
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+
+        #mainPlotContainer { flex: 2; }
+        #detailPlotContainer { flex: 1; }
+        #phasePlotContainer { flex: 1; display: none; /* Hidden initially */ }
+
+
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none; appearance: none;
+            height: 6px; background: #CBD5E1; border-radius: 3px; outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 14px; height: 14px; background: #3B82F6;
+            border-radius: 50%; cursor: pointer; border: 2px solid #FFFFFF;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+            transition: background-color 0.15s ease;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 12px; height: 12px; background: #3B82F6;
+            border-radius: 50%; cursor: pointer; border: 2px solid #FFFFFF;
+        }
+        input[type=range]:hover::-webkit-slider-thumb { background: #2563EB; }
+
+    </style>
+</head>
+<body>
+
+    <div id="artifactContainer">
+        <div id="controlPanel">
+            <div class="controlGroup">
+                <h3>ODE Definition</h3>
+                <label for="odeSelect">Choose Equation:</label>
+                <select id="odeSelect">
+                    <option value="simple_harmonic">y'' = -y (Simple Harmonic)</option>
+                    <option value="damped_harmonic">y'' = -y - 0.5y' (Damped Harmonic)</option>
+                    <option value="pendulum">y'' = -sin(y) (Pendulum)</option>
+                    <option value="damped_pendulum">y'' = -sin(y) - 0.3y' (Damped Pendulum)</option>
+                    <option value="vdp">y'' = 1*(1-y^2)*y' - y (Van der Pol)</option>
+                    <option value="logistic">y' = y * (1 - y) (Logistic Growth)</option>
+                    <option value="custom">y' = x*sin(y) (Custom 1st Order)</option>
+                </select>
+            </div>
+
+            <div class="controlGroup">
+                <h3>Initial Conditions</h3>
+                <label for="x0Input">x₀ <span id="x0Value" class="valueDisplay">0.0</span></label>
+                <input type="number" id="x0Input" value="0" step="0.1">
+                <label for="y0Input">y(x₀) <span id="y0Value" class="valueDisplay">1.0</span></label>
+                <input type="number" id="y0Input" value="1" step="0.1">
+                <label for="yp0Input" id="yp0Label">y'(x₀) <span id="yp0Value" class="valueDisplay">0.0</span></label>
+                <input type="number" id="yp0Input" value="0" step="0.1">
+            </div>
+            
+            <div class="controlGroup">
+                <h3>Solver Parameters</h3>
+                <label for="stepSizeInput">Step Size (h) <span id="stepSizeValue" class="valueDisplay">0.1</span></label>
+                <input type="range" id="stepSizeInput" min="0.005" max="0.5" step="0.005" value="0.1">
+                <label for="solveUpToXInput">Solve up to x <span id="solveUpToXValue" class="valueDisplay">20.0</span></label>
+                <input type="range" id="solveUpToXInput" min="1" max="100" step="1" value="20">
+            </div>
+
+            <div class="controlGroup">
+                <h3>Animation Control</h3>
+                 <label for="animSpeedSlider">Animation Speed <span id="animSpeedValue" class="valueDisplay">5</span></label>
+                <input type="range" id="animSpeedSlider" min="1" max="20" step="1" value="5">
+                <div style="margin-top: 8px;">
+                    <button id="startButton">Start</button>
+                    <button id="pauseButton" class="secondary">Pause</button>
+                    <button id="resetButton" class="secondary">Reset</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="visualizationArea">
+            <div id="mainPlotContainer" class="plotContainer">
+                <canvas id="mainPlotCanvas"></canvas>
+                <div class="plotTitle">Solution y(x)</div>
+            </div>
+            <div id="phasePlotContainer" class="plotContainer">
+                <canvas id="phasePlotCanvas"></canvas>
+                <div class="plotTitle">Phase Space (y' vs y)</div>
+            </div>
+            <div id="detailPlotContainer" class="plotContainer">
+                <canvas id="detailPlotCanvas"></canvas>
+                <div class="plotTitle">Current RK4 Step Detail</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    'use strict';
+
+    // --- DOM Elements ---
+    const mainPlotCanvas = document.getElementById('mainPlotCanvas');
+    const phasePlotCanvas = document.getElementById('phasePlotCanvas');
+    const detailPlotCanvas = document.getElementById('detailPlotCanvas');
+    const mainCtx = mainPlotCanvas.getContext('2d');
+    const phaseCtx = phasePlotCanvas.getContext('2d');
+    const detailCtx = detailPlotCanvas.getContext('2d');
+
+    // Controls
+    const odeSelect = document.getElementById('odeSelect');
+    const x0Input = document.getElementById('x0Input');
+    const y0Input = document.getElementById('y0Input');
+    const yp0Input = document.getElementById('yp0Input');
+    const yp0Label = document.getElementById('yp0Label');
+    const stepSizeInput = document.getElementById('stepSizeInput');
+    const solveUpToXInput = document.getElementById('solveUpToXInput');
+    const animSpeedSlider = document.getElementById('animSpeedSlider');
+    const startButton = document.getElementById('startButton');
+    const pauseButton = document.getElementById('pauseButton');
+    const resetButton = document.getElementById('resetButton');
+
+    // Value Displays
+    const x0Value = document.getElementById('x0Value');
+    const y0Value = document.getElementById('y0Value');
+    const yp0Value = document.getElementById('yp0Value');
+    const stepSizeValue = document.getElementById('stepSizeValue');
+    const solveUpToXValue = document.getElementById('solveUpToXValue');
+    const animSpeedValue = document.getElementById('animSpeedValue');
+    
+    // Plot Containers
+    const phasePlotContainer = document.getElementById('phasePlotContainer');
+
+
+    // --- Simulation State & Parameters ---
+    let simState = {
+        x: 0, y: 0, yp: 0, // Current values
+        x0: 0, y0: 0, yp0: 0, // Initial conditions
+        h: 0.1,           // Step size
+        solveUpToX: 20,
+        solutionPath: [], // Array of {x, y, yp} points for main plot
+        isRunning: false,
+        isPaused: false,
+        isSecondOrder: false,
+        odeFunction: null, // Will hold the function f(x, y, yp) or f(x,y)
+        animationSpeed: 5, // Steps per animation frame
+        currentK: { k1:0, k2:0, k3:0, k4:0, k1_yp:0, k2_yp:0, k3_yp:0, k4_yp:0 }, // For RK4 detail vis
+        detailViewCenter: { x:0, y:0 }, // For panning detail view
+    };
+    let animationFrameId = null;
+
+    // Plotting scales and offsets
+    let mainPlotScale = { x: 20, y: 2 }; // Pixels per unit
+    let mainPlotOffset = { x: 50, y: 0 }; // y will be canvasHeight/2
+    let phasePlotScale = { x: 2, y: 2 };
+    let phasePlotOffset = { x: 0, y: 0 }; // Will be canvasWidth/2, canvasHeight/2
+
+
+    // --- ODE Definitions ---
+    // For 2nd order y'' = f(x, y, y'), we convert to a system:
+    // dy/dx = z  (where z = y')
+    // dz/dx = f(x, y, z)
+    const ODEs = {
+        simple_harmonic: { func: (x, y, yp) => -y, isSecondOrder: true },
+        damped_harmonic: { func: (x, y, yp) => -y - 0.5 * yp, isSecondOrder: true },
+        pendulum: { func: (x, y, yp) => -Math.sin(y), isSecondOrder: true },
+        damped_pendulum: { func: (x, y, yp) => -Math.sin(y) - 0.3 * yp, isSecondOrder: true },
+        vdp: { func: (x, y, yp) => 1 * (1 - y * y) * yp - y, isSecondOrder: true }, // mu = 1
+        logistic: { func: (x, y) => y * (1 - y), isSecondOrder: false },
+        custom: { func: (x, y) => x * Math.sin(y), isSecondOrder: false },
+    };
+    
+    function selectODE() {
+        const selected = ODEs[odeSelect.value];
+        simState.odeFunction = selected.func;
+        simState.isSecondOrder = selected.isSecondOrder;
+        yp0Input.style.display = simState.isSecondOrder ? 'block' : 'none';
+        yp0Label.style.display = simState.isSecondOrder ? 'block' : 'none';
+        phasePlotContainer.style.display = simState.isSecondOrder ? 'flex' : 'none';
+        resetSimulation(); // Reset when ODE changes
+    }
+
+    // --- RK4 Solver ---
+    function rk4Step() {
+        const { x, y, yp, h, odeFunction, isSecondOrder } = simState;
+        let k1_y, k2_y, k3_y, k4_y;
+        let k1_yp = 0, k2_yp = 0, k3_yp = 0, k4_yp = 0; // For second order system
+
+        if (isSecondOrder) {
+            // dy/dx = yp
+            // d(yp)/dx = odeFunction(x, y, yp)
+            k1_y = h * yp;
+            k1_yp = h * odeFunction(x, y, yp);
+
+            k2_y = h * (yp + k1_yp / 2);
+            k2_yp = h * odeFunction(x + h / 2, y + k1_y / 2, yp + k1_yp / 2);
+            
+            k3_y = h * (yp + k2_yp / 2);
+            k3_yp = h * odeFunction(x + h / 2, y + k2_y / 2, yp + k2_yp / 2);
+
+            k4_y = h * (yp + k3_yp);
+            k4_yp = h * odeFunction(x + h, y + k3_y, yp + k3_yp);
+
+            simState.y += (k1_y + 2 * k2_y + 2 * k3_y + k4_y) / 6;
+            simState.yp += (k1_yp + 2 * k2_yp + 2 * k3_yp + k4_yp) / 6;
+            simState.currentK = { k1:k1_y, k2:k2_y, k3:k3_y, k4:k4_y, k1_yp, k2_yp, k3_yp, k4_yp };
+        } else {
+            // dy/dx = odeFunction(x, y)
+            k1_y = h * odeFunction(x, y);
+            k2_y = h * odeFunction(x + h / 2, y + k1_y / 2);
+            k3_y = h * odeFunction(x + h / 2, y + k2_y / 2);
+            k4_y = h * odeFunction(x + h, y + k3_y);
+            
+            simState.y += (k1_y + 2 * k2_y + 2 * k3_y + k4_y) / 6;
+            simState.yp = (k1_y + 2 * k2_y + 2 * k3_y + k4_y) / (6 * h); // Effective slope of this step
+            simState.currentK = { k1:k1_y, k2:k2_y, k3:k3_y, k4:k4_y, k1_yp:0, k2_yp:0, k3_yp:0, k4_yp:0 };
+        }
+        simState.x += h;
+        simState.solutionPath.push({ x: simState.x, y: simState.y, yp: simState.yp });
+        
+        // Keep detail view centered roughly on the current point
+        simState.detailViewCenter = { x: x + h/2, y: y + (k1_y + 2*k2_y + 2*k3_y + k4_y)/12 }; 
+    }
+
+
+    // --- Drawing Functions ---
+    function setupCanvases() {
+        [mainPlotCanvas, phasePlotCanvas, detailPlotCanvas].forEach(cvs => {
+            const container = cvs.parentElement;
+            cvs.width = container.clientWidth;
+            cvs.height = container.clientHeight;
+        });
+        mainPlotOffset.y = mainPlotCanvas.height / 2;
+        phasePlotOffset = { x: phasePlotCanvas.width / 2, y: phasePlotCanvas.height / 2};
+    }
+
+    function drawAxes(ctx, width, height, offsetX, offsetY, scaleX, scaleY, showGrid = true) {
+        ctx.clearRect(0, 0, width, height);
+        ctx.strokeStyle = "#D1D5DB"; // Light gray for axes/grid
+        ctx.lineWidth = 1;
+
+        // Origin
+        const originX = offsetX;
+        const originY = offsetY;
+
+        // X-axis
+        ctx.beginPath();
+        ctx.moveTo(0, originY);
+        ctx.lineTo(width, originY);
+        ctx.stroke();
+
+        // Y-axis
+        ctx.beginPath();
+        ctx.moveTo(originX, 0);
+        ctx.lineTo(originX, height);
+        ctx.stroke();
+        
+        // Grid and labels (simplified)
+        ctx.fillStyle = "#9CA3AF"; // Cool gray for labels
+        ctx.font = "10px Arial";
+        if (showGrid) {
+            for (let i = 1; (originX + i * scaleX) < width || (originX - i * scaleX) > 0 ; i++) { // X-grid right & left
+                if ((originX + i * scaleX) < width) {ctx.beginPath(); ctx.moveTo(originX + i * scaleX, 0); ctx.lineTo(originX + i * scaleX, height); ctx.stroke(); if(i%5==0) ctx.fillText(i, originX + i * scaleX + 2, originY - 2);}
+                if ((originX - i * scaleX) > 0) {ctx.beginPath(); ctx.moveTo(originX - i * scaleX, 0); ctx.lineTo(originX - i * scaleX, height); ctx.stroke(); if(i%5==0) ctx.fillText(-i, originX - i * scaleX + 2, originY - 2);}
+            }
+             for (let i = 1; (originY + i * scaleY) < height || (originY - i * scaleY) > 0; i++) { // Y-grid up & down
+                if((originY + i * scaleY) < height) {ctx.beginPath(); ctx.moveTo(0, originY + i * scaleY); ctx.lineTo(width, originY + i * scaleY); ctx.stroke(); if(i%5==0) ctx.fillText(-i, originX + 2, originY + i * scaleY - 2);} // Y is inverted on canvas
+                if((originY - i * scaleY) > 0) {ctx.beginPath(); ctx.moveTo(0, originY - i * scaleY); ctx.lineTo(width, originY - i * scaleY); ctx.stroke(); if(i%5==0) ctx.fillText(i, originX + 2, originY - i * scaleY - 2);}
+            }
+        }
+    }
+
+    function drawMainPlot() {
+        drawAxes(mainCtx, mainPlotCanvas.width, mainPlotCanvas.height, mainPlotOffset.x, mainPlotOffset.y, mainPlotScale.x, mainPlotScale.y);
+        mainCtx.strokeStyle = "#EF4444"; // Red for solution path
+        mainCtx.lineWidth = 2;
+        mainCtx.beginPath();
+        simState.solutionPath.forEach((p, i) => {
+            const canvasX = mainPlotOffset.x + p.x * mainPlotScale.x;
+            const canvasY = mainPlotOffset.y - p.y * mainPlotScale.y; // Invert Y
+            if (i === 0) mainCtx.moveTo(canvasX, canvasY);
+            else mainCtx.lineTo(canvasX, canvasY);
+        });
+        mainCtx.stroke();
+    }
+
+    function drawPhasePlot() {
+        if (!simState.isSecondOrder) return;
+        drawAxes(phaseCtx, phasePlotCanvas.width, phasePlotCanvas.height, phasePlotOffset.x, phasePlotOffset.y, phasePlotScale.x * 5, phasePlotScale.y * 5); // Adjust scale for phase plot
+        phaseCtx.strokeStyle = "#3B82F6"; // Blue for phase path
+        phaseCtx.lineWidth = 1.5;
+        phaseCtx.beginPath();
+        simState.solutionPath.forEach((p, i) => {
+            const canvasX = phasePlotOffset.x + p.y * phasePlotScale.x * 5; // y is x-axis
+            const canvasY = phasePlotOffset.y - p.yp * phasePlotScale.y * 5; // yp is y-axis (inverted)
+            if (i === 0) phaseCtx.moveTo(canvasX, canvasY);
+            else phaseCtx.lineTo(canvasX, canvasY);
+        });
+        phaseCtx.stroke();
+    }
+
+    function drawDetailPlot() {
+        const { x: currentX, y: currentY, h, currentK, isSecondOrder } = simState;
+        const lastPoint = simState.solutionPath.length > 1 ? simState.solutionPath[simState.solutionPath.length - 2] : {x:simState.x0, y:simState.y0, yp:simState.yp0};
+        const x_n = lastPoint.x;
+        const y_n = lastPoint.y;
+
+        // Dynamic scaling for detail plot to keep current step somewhat centered and visible
+        const detailRangeX = h * 2;
+        const detailRangeY = Math.max(Math.abs(currentK.k1),Math.abs(currentK.k2),Math.abs(currentK.k3),Math.abs(currentK.k4), h) * 1.5 || h * 2;
+        
+        const detailScaleX = detailPlotCanvas.width / detailRangeX;
+        const detailScaleY = detailPlotCanvas.height / detailRangeY;
+        const detailScale = Math.min(detailScaleX, detailScaleY) * 0.8; // Use a common scale, with some padding
+
+        const detailOffsetX = detailPlotCanvas.width / 2 - (x_n + h/2 - simState.detailViewCenter.x) * detailScale;
+        const detailOffsetY = detailPlotCanvas.height / 2 + (y_n + (currentK.k1/2) - simState.detailViewCenter.y) * detailScale; // Y is inverted
+
+        drawAxes(detailCtx, detailPlotCanvas.width, detailPlotCanvas.height, detailOffsetX, detailOffsetY, detailScale, detailScale, false);
+
+        // Helper to convert world to detail canvas coords
+        const toCanvas = (wx, wy) => ({
+            x: detailOffsetX + (wx - simState.detailViewCenter.x) * detailScale,
+            y: detailOffsetY - (wy - simState.detailViewCenter.y) * detailScale // Invert Y
+        });
+
+        const p0_canvas = toCanvas(x_n, y_n);
+
+        // Draw k slopes (only for y, yp slopes are harder to visualize directly here)
+        const slopeColors = ["#FB923C", "#FACC15", "#A3E635", "#4ADE80"]; // Orange, Yellow, Lime, Green
+        const K = [currentK.k1, currentK.k2, currentK.k3, currentK.k4];
+        const K_yp = [currentK.k1_yp, currentK.k2_yp, currentK.k3_yp, currentK.k4_yp];
+
+        // k1 from (x_n, y_n)
+        let p_k_end = toCanvas(x_n + h, y_n + K[0]);
+        detailCtx.strokeStyle = slopeColors[0]; detailCtx.lineWidth = 1.5; detailCtx.beginPath(); detailCtx.moveTo(p0_canvas.x, p0_canvas.y); detailCtx.lineTo(p_k_end.x, p_k_end.y); detailCtx.stroke();
+        detailCtx.fillStyle = slopeColors[0]; detailCtx.fillText("k1", p_k_end.x + 3, p_k_end.y);
+
+
+        // k2 from (x_n + h/2, y_n + k1/2)
+        const p_k2_start_canvas = toCanvas(x_n + h/2, y_n + K[0]/2);
+        p_k_end = toCanvas(x_n + h/2 + h, y_n + K[0]/2 + K[1]); // Slope is relative to its start
+        detailCtx.strokeStyle = slopeColors[1]; detailCtx.beginPath(); detailCtx.moveTo(p_k2_start_canvas.x, p_k2_start_canvas.y); detailCtx.lineTo(p_k_end.x, p_k_end.y); detailCtx.stroke();
+        detailCtx.fillStyle = slopeColors[1]; detailCtx.fillText("k2", p_k_end.x + 3, p_k_end.y);
+
+        // k3 from (x_n + h/2, y_n + k2/2)
+        const p_k3_start_canvas = toCanvas(x_n + h/2, y_n + K[1]/2);
+        p_k_end = toCanvas(x_n + h/2 + h, y_n + K[1]/2 + K[2]);
+        detailCtx.strokeStyle = slopeColors[2]; detailCtx.beginPath(); detailCtx.moveTo(p_k3_start_canvas.x, p_k3_start_canvas.y); detailCtx.lineTo(p_k_end.x, p_k_end.y); detailCtx.stroke();
+        detailCtx.fillStyle = slopeColors[2]; detailCtx.fillText("k3", p_k_end.x + 3, p_k_end.y);
+
+        // k4 from (x_n + h, y_n + k3)
+        const p_k4_start_canvas = toCanvas(x_n + h, y_n + K[2]);
+        p_k_end = toCanvas(x_n + h + h, y_n + K[2] + K[3]);
+        detailCtx.strokeStyle = slopeColors[3]; detailCtx.beginPath(); detailCtx.moveTo(p_k4_start_canvas.x, p_k4_start_canvas.y); detailCtx.lineTo(p_k_end.x, p_k_end.y); detailCtx.stroke();
+        detailCtx.fillStyle = slopeColors[3]; detailCtx.fillText("k4", p_k_end.x + 3, p_k_end.y);
+
+        // Draw points
+        detailCtx.fillStyle = "#4B5563"; // Dark gray for points
+        detailCtx.beginPath(); detailCtx.arc(p0_canvas.x, p0_canvas.y, 3, 0, Math.PI*2); detailCtx.fill(); // (x_n, y_n)
+        detailCtx.fillText(`(x_n, y_n)`, p0_canvas.x - 40, p0_canvas.y - 5);
+
+        if(simState.solutionPath.length > 0){
+            const p1_canvas = toCanvas(simState.x, simState.y); // (x_{n+1}, y_{n+1})
+            detailCtx.fillStyle = "#EF4444"; // Red for final point
+            detailCtx.beginPath(); detailCtx.arc(p1_canvas.x, p1_canvas.y, 4, 0, Math.PI*2); detailCtx.fill();
+             detailCtx.fillText(`(x_{n+1}, y_{n+1})`, p1_canvas.x + 5, p1_canvas.y + 5);
+        }
+    }
+
+
+    // --- Simulation Loop & Control ---
+    function simulationLoop() {
+        if (!simState.isRunning || simState.isPaused) {
+            animationFrameId = null; return;
+        }
+
+        for(let i = 0; i < simState.animationSpeed; i++) {
+            if (simState.x < simState.solveUpToX) {
+                rk4Step();
+            } else {
+                simState.isRunning = false; // Reached end
+                startButton.textContent = "Start";
+                pauseButton.textContent = "Pause";
+                break;
+            }
+        }
+        
+        drawMainPlot();
+        if(simState.isSecondOrder) drawPhasePlot();
+        drawDetailPlot();
+
+        if (simState.isRunning) {
+            animationFrameId = requestAnimationFrame(simulationLoop);
+        } else {
+             animationFrameId = null;
+        }
+    }
+
+    function updateParameterDisplays() {
+        x0Value.textContent = parseFloat(x0Input.value).toFixed(2);
+        y0Value.textContent = parseFloat(y0Input.value).toFixed(2);
+        yp0Value.textContent = parseFloat(yp0Input.value).toFixed(2);
+        stepSizeValue.textContent = parseFloat(stepSizeInput.value).toFixed(3);
+        solveUpToXValue.textContent = parseFloat(solveUpToXInput.value).toFixed(1);
+        animSpeedValue.textContent = parseInt(animSpeedSlider.value);
+    }
+    
+    function readParameters() {
+        simState.x0 = parseFloat(x0Input.value);
+        simState.y0 = parseFloat(y0Input.value);
+        simState.yp0 = parseFloat(yp0Input.value);
+        simState.h = parseFloat(stepSizeInput.value);
+        simState.solveUpToX = parseFloat(solveUpToXInput.value);
+        simState.animationSpeed = parseInt(animSpeedSlider.value);
+        updateParameterDisplays();
+    }
+
+    function resetSimulation() {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+        
+        readParameters();
+        simState.x = simState.x0;
+        simState.y = simState.y0;
+        simState.yp = simState.isSecondOrder ? simState.yp0 : 0; // Reset yp based on ODE type
+        simState.solutionPath = [{ x: simState.x, y: simState.y, yp: simState.yp }]; // Start with initial point
+        simState.isRunning = false;
+        simState.isPaused = false;
+        simState.detailViewCenter = {x: simState.x0, y: simState.y0};
+
+
+        // Initial draw of axes and the starting point
+        setupCanvases(); // Ensure canvas sizes are correct
+        drawMainPlot();
+        if(simState.isSecondOrder) drawPhasePlot(); else phasePlotContainer.style.display = 'none';
+        drawDetailPlot(); // Show initial state in detail view
+
+        startButton.textContent = "Start";
+        pauseButton.textContent = "Pause";
+        pauseButton.disabled = true;
+    }
+
+    // --- Event Listeners ---
+    function setupEventListeners() {
+        window.addEventListener('resize', () => {
+            setupCanvases();
+            drawMainPlot(); // Redraw everything on resize
+            if(simState.isSecondOrder) drawPhasePlot();
+            drawDetailPlot();
+        });
+
+        odeSelect.addEventListener('change', selectODE);
+        
+        [x0Input, y0Input, yp0Input, stepSizeInput, solveUpToXInput, animSpeedSlider].forEach(input => {
+            input.addEventListener('input', () => {
+                 readParameters();
+                 // If not running, a parameter change could imply a reset or redraw
+                 if(!simState.isRunning && !simState.isPaused) {
+                     resetSimulation(); // Or just update displays and redraw initial state
+                 } else {
+                    updateParameterDisplays(); // Just update display if running/paused
+                 }
+            });
+        });
+
+        startButton.addEventListener('click', () => {
+            if (!simState.isRunning) { // If completely stopped or finished
+                resetSimulation(); // Full reset to apply potentially changed params
+            }
+            simState.isRunning = true;
+            simState.isPaused = false;
+            startButton.textContent = "Running...";
+            pauseButton.textContent = "Pause";
+            pauseButton.disabled = false;
+            if (!animationFrameId) {
+                animationFrameId = requestAnimationFrame(simulationLoop);
+            }
+        });
+
+        pauseButton.addEventListener('click', () => {
+            if (simState.isRunning) {
+                simState.isPaused = !simState.isPaused;
+                pauseButton.textContent = simState.isPaused ? "Resume" : "Pause";
+                startButton.textContent = simState.isPaused ? "Start (Resets)" : "Running..."; // Clarify Start behavior
+                if (!simState.isPaused && !animationFrameId) { // Resuming
+                    animationFrameId = requestAnimationFrame(simulationLoop);
+                }
+            }
+        });
+        
+        resetButton.addEventListener('click', () => {
+            selectODE(); // This calls resetSimulation
+        });
+    }
+
+    // --- Initial Setup ---
+    setupCanvases();
+    selectODE(); // This sets up the initial ODE and calls resetSimulation
+    updateParameterDisplays();
+    pauseButton.disabled = true; // Initially disabled
+
+    setupEventListeners();
+    console.log("ODE Explorer Initialized. Choose an ODE and press Start.");
+    
+    </script>
+</body>
+</html>
