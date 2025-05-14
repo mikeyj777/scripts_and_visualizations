@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Symbiotic Growth - A Digital Ecosystem</title>
+    <style>
+        /* --- Global Styles & Resets --- */
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            background-color: #1A202C; /* Dark Slate Blue - a more 'earthy' dark */
+            font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #E2E8F0; /* Light Grayish Blue */
+        }
+
+        /* --- Main Layout --- */
+        #artifactContainer {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: row; 
+        }
+
+        #visualizationArea {
+            flex: 3; 
+            height: 100%;
+            position: relative;
+            background: #2D3748; /* Medium Slate - canvas background */
+            cursor: crosshair; /* Indicate interactivity */
+        }
+
+        #mainCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #infoOverlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(26, 32, 44, 0.7);
+            color: #A0AEC0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none; /* So it doesn't interfere */
+        }
+        #infoOverlay span { color: #E2E8F0; font-weight: bold; }
+
+
+        #controlPanel {
+            flex: 1; 
+            height: 100%;
+            background: #202734; /* Darker control panel */
+            border-left: 1px solid #4A5568;
+            padding: 15px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px; 
+        }
+
+        /* --- Control Panel Elements --- */
+        .controlPanelTitle {
+            margin: 0 0 10px;
+            font-size: 18px;
+            font-weight: 400; 
+            text-align: center;
+            border-bottom: 1px solid #4A5568;
+            padding-bottom: 10px;
+            color: #CBD5E0; 
+        }
+
+        .controlGroup {
+            padding-bottom: 10px;
+            border-bottom: 1px dotted #3A4454; 
+        }
+        .controlGroup:last-child { border-bottom: none; }
+
+        .controlGroup label {
+            display: block;
+            font-size: 13px;
+            font-weight: 300;
+            margin-bottom: 6px;
+            color: #A0AEC0;
+        }
+        .controlGroup label .valueDisplay {
+            float: right;
+            font-weight: 400;
+            color: #CBD5E0;
+        }
+
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+            margin-bottom: 5px;
+            -webkit-appearance: none; appearance: none;
+            height: 8px;
+            background: #4A5568; /* Slider track */
+            border-radius: 4px;
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 16px; height: 16px;
+            background: #63B3ED; /* Bright Blue thumb */
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid #202734; 
+            transition: background-color 0.15s ease;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 14px; height: 14px;
+            background: #63B3ED; border-radius: 50%;
+            cursor: pointer; border: 2px solid #202734;
+        }
+        input[type=range]:hover::-webkit-slider-thumb { background: #90CDF4; }
+
+        .buttonRow { display: flex; justify-content: space-around; gap: 10px; margin-top: 5px; }
+
+        .controlPanel button {
+            flex-grow: 1;
+            background: #4A5568; border: 1px solid #606F84;
+            color: #CBD5E0; padding: 8px 10px; cursor: pointer;
+            border-radius: 4px; font-size: 13px; font-weight: 300;
+            transition: background-color 0.15s ease, transform 0.1s ease;
+        }
+        .controlPanel button:hover { background: #606F84; color: #FFFFFF; }
+        .controlPanel button:active { background: #718096; transform: scale(0.97); }
+        
+        #controlPanel::-webkit-scrollbar { width: 6px; }
+        #controlPanel::-webkit-scrollbar-track { background: #202734; }
+        #controlPanel::-webkit-scrollbar-thumb { background: #4A5568; border-radius: 3px; }
+        #controlPanel::-webkit-scrollbar-thumb:hover { background: #606F84; }
+
+        #initialGuidance {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(26, 32, 44, 0.9);
+            color: #CBD5E0; padding: 25px; border-radius: 8px;
+            text-align: center; font-size: 14px; line-height: 1.6;
+            max-width: 80%; z-index: 100; border: 1px solid #4A5568;
+            box-shadow: 0 0 30px rgba(99, 179, 237, 0.2);
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+        }
+        #initialGuidance h3 { margin-top: 0; color: #90CDF4; font-weight: 400; }
+        #initialGuidance button {
+            margin-top: 15px; background: #63B3ED; border: none;
+            color: #1A202C; padding: 10px 20px; border-radius: 5px;
+            cursor: pointer; font-weight: bold;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="artifactContainer">
+        <div id="visualizationArea">
+            <canvas id="mainCanvas"></canvas>
+            <div id="infoOverlay">Generation: <span id="generationInfo">0</span> | Symbionts: <span id="symbiontInfo">0</span></div>
+            <div id="initialGuidance">
+                <h3>Symbiotic Growth</h3>
+                <p>Witness digital lifeforms evolve through L-Systems and interacting Symbionts.<br>Click the canvas to plant a new seed. Adjust parameters to shape their destiny.</p>
+                <button id="beginGrowthButton">Cultivate Life</button>
+            </div>
+        </div>
+
+        <div id="controlPanel">
+            <h2 class="controlPanelTitle">Growth Parameters</h2>
+
+            <div class="controlGroup">
+                <div class="buttonRow">
+                    <button id="playPauseButton">Pause</button>
+                    <button id="clearCanvasButton">Clear & Reseed</button>
+                </div>
+            </div>
+            
+            <h3 class="controlPanelTitle" style="font-size: 15px; margin-top:10px; margin-bottom:5px;">L-System Rules</h3>
+            <div class="controlGroup">
+                <label for="lSystemAngleSlider">Branch Angle (°)<span id="lSystemAngleValue" class="valueDisplay">25</span></label>
+                <input type="range" id="lSystemAngleSlider" min="5" max="45" step="1" value="25">
+            </div>
+            <div class="controlGroup">
+                <label for="lSystemLengthSlider">Segment Length <span id="lSystemLengthValue" class="valueDisplay">5</span></label>
+                <input type="range" id="lSystemLengthSlider" min="1" max="15" step="0.5" value="5">
+            </div>
+             <div class="controlGroup">
+                <label for="growthIterationsSlider">Max Generations <span id="growthIterationsValue" class="valueDisplay">7</span></label>
+                <input type="range" id="growthIterationsSlider" min="3" max="10" step="1" value="7">
+            </div>
+             <div class="controlGroup">
+                <label for="growthSpeedSlider">Growth Interval (ms) <span id="growthSpeedValue" class="valueDisplay">500</span></label>
+                <input type="range" id="growthSpeedSlider" min="50" max="2000" step="50" value="500">
+            </div>
+
+
+            <h3 class="controlPanelTitle" style="font-size: 15px; margin-top:10px; margin-bottom:5px;">Symbiont Agents</h3>
+            <div class="controlGroup">
+                <label for="numSymbiontsSlider">Number of Symbionts <span id="numSymbiontsValue" class="valueDisplay">5</span></label>
+                <input type="range" id="numSymbiontsSlider" min="0" max="15" step="1" value="5">
+            </div>
+            <div class="controlGroup">
+                <label for="symbiontSpeedSlider">Symbiont Speed <span id="symbiontSpeedValue" class="valueDisplay">1.0</span></label>
+                <input type="range" id="symbiontSpeedSlider" min="0.1" max="3.0" step="0.1" value="1.0">
+            </div>
+            <div class="controlGroup">
+                <label for="symbiontAttractionSlider">Attraction to Growth <span id="symbiontAttractionValue" class="valueDisplay">0.3</span></label>
+                <input type="range" id="symbiontAttractionSlider" min="0" max="1.0" step="0.05" value="0.3">
+            </div>
+            <div class="controlGroup">
+                <label for="interactionBoostSlider">Growth Boost Factor <span id="interactionBoostValue" class="valueDisplay">1.2</span></label>
+                <input type="range" id="interactionBoostSlider" min="1.0" max="2.0" step="0.05" value="1.2">
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+    'use strict';
+
+    // --- DOM Elements ---
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const vizArea = document.getElementById('visualizationArea');
+    const generationInfo = document.getElementById('generationInfo');
+    const symbiontInfo = document.getElementById('symbiontInfo');
+
+    // Controls
+    const playPauseButton = document.getElementById('playPauseButton');
+    const clearCanvasButton = document.getElementById('clearCanvasButton');
+    const lSystemAngleSlider = document.getElementById('lSystemAngleSlider');
+    const lSystemLengthSlider = document.getElementById('lSystemLengthSlider');
+    const growthIterationsSlider = document.getElementById('growthIterationsSlider');
+    const growthSpeedSlider = document.getElementById('growthSpeedSlider');
+    const numSymbiontsSlider = document.getElementById('numSymbiontsSlider');
+    const symbiontSpeedSlider = document.getElementById('symbiontSpeedSlider');
+    const symbiontAttractionSlider = document.getElementById('symbiontAttractionSlider');
+    const interactionBoostSlider = document.getElementById('interactionBoostSlider');
+
+    // Value Displays
+    const lSystemAngleValue = document.getElementById('lSystemAngleValue');
+    const lSystemLengthValue = document.getElementById('lSystemLengthValue');
+    const growthIterationsValue = document.getElementById('growthIterationsValue');
+    const growthSpeedValue = document.getElementById('growthSpeedValue');
+    const numSymbiontsValue = document.getElementById('numSymbiontsValue');
+    const symbiontSpeedValue = document.getElementById('symbiontSpeedValue');
+    const symbiontAttractionValue = document.getElementById('symbiontAttractionValue');
+    const interactionBoostValue = document.getElementById('interactionBoostValue');
+    
+    // Initial Guidance
+    const initialGuidance = document.getElementById('initialGuidance');
+    const beginGrowthButton = document.getElementById('beginGrowthButton');
+
+    // --- Simulation State & Parameters ---
+    let lSystems = []; // Array to hold multiple L-System instances
+    let symbionts = [];
+    let isRunning = true;
+    let animationFrameId = null;
+    let growthIntervalId = null;
+    let canvasWidth, canvasHeight;
+    
+    // L-System Parameters (will be updated by sliders)
+    let BRANCH_ANGLE;
+    let SEGMENT_LENGTH;
+    let MAX_ITERATIONS;
+    let GROWTH_INTERVAL; // ms for L-System string expansion
+
+    // Symbiont Parameters
+    let NUM_SYMBIONTS;
+    let SYMBIONT_SPEED;
+    let SYMBIONT_ATTRACTION;
+    let INTERACTION_BOOST;
+
+    // --- L-System Definition & Interpretation ---
+    const lSystemRules = {
+        'F': "F[+F]F[-F]F", // Classic fractal plant rule
+        // 'F': "FF-[-F+F+F]+[+F-F-F]", // Another variant
+        'X': "F-[[X]+X]+F[+FX]-X", // More complex variant (if we use 'X' as axiom)
+        // Other symbols like G, H could be introduced for different segment types or "flowers"
+    };
+    const L_SYSTEM_AXIOM = "F";
+
+    class LSystemInstance {
+        constructor(startX, startY, startAngle, initialSegmentLength, color) {
+            this.x = startX;
+            this.y = startY;
+            this.currentAngle = startAngle; // Radians
+            this.currentSegmentLength = initialSegmentLength;
+            this.color = color || `hsl(${Math.random() * 360}, 70%, 60%)`;
+            
+            this.axiom = L_SYSTEM_AXIOM;
+            this.currentString = this.axiom;
+            this.iteration = 0;
+            this.path = []; // Store drawn segments for potential interaction
+            this.branchPoints = []; // Store points where interaction can boost growth
+
+            this.activeGrowthBoost = 1.0; // Multiplier for segment length due to interaction
+            this.lastInteractionTime = 0;
+        }
+
+        expandString() {
+            if (this.iteration >= MAX_ITERATIONS) return false; // Max growth reached
+
+            let nextString = "";
+            for (const char of this.currentString) {
+                nextString += lSystemRules[char] || char;
+            }
+            this.currentString = nextString;
+            this.iteration++;
+            generationInfo.textContent = this.iteration; // Update global display (simplistic for now)
+            return true;
+        }
+
+        // Turtle graphics interpretation
+        draw(ctx) {
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = Math.max(1, 3 - this.iteration * 0.2); // Thinner branches over time
+            
+            let turtle = { x: this.x, y: this.y, angle: this.currentAngle };
+            let stack = [];
+            this.path = []; // Clear old path segments before redrawing
+            this.branchPoints = [];
+
+            for (const char of this.currentString) {
+                const effectiveSegmentLength = this.currentSegmentLength * this.activeGrowthBoost;
+                switch (char) {
+                    case 'F': // Draw forward
+                    case 'G': // Could be different type of segment
+                        const lastX = turtle.x;
+                        const lastY = turtle.y;
+                        turtle.x += Math.cos(turtle.angle) * effectiveSegmentLength;
+                        turtle.y += Math.sin(turtle.angle) * effectiveSegmentLength;
+                        ctx.beginPath();
+                        ctx.moveTo(lastX, lastY);
+                        ctx.lineTo(turtle.x, turtle.y);
+                        ctx.stroke();
+                        this.path.push({x1: lastX, y1: lastY, x2: turtle.x, y2: turtle.y, iter: this.iteration});
+                        this.branchPoints.push({x: turtle.x, y: turtle.y, instance: this}); // Potential interaction point
+                        break;
+                    case '+': // Turn right
+                        turtle.angle += BRANCH_ANGLE * (Math.PI / 180);
+                        break;
+                    case '-': // Turn left
+                        turtle.angle -= BRANCH_ANGLE * (Math.PI / 180);
+                        break;
+                    case '[': // Push state
+                        stack.push({ x: turtle.x, y: turtle.y, angle: turtle.angle });
+                        break;
+                    case ']': // Pop state
+                        if (stack.length > 0) turtle = stack.pop();
+                        break;
+                }
+            }
+            // Reset boost if not recently interacted
+            if (performance.now() - this.lastInteractionTime > 3000) { // 3 second boost
+                this.activeGrowthBoost = 1.0;
+            }
+        }
+        
+        interact() { // Called by a symbiont
+            this.activeGrowthBoost = INTERACTION_BOOST;
+            this.lastInteractionTime = performance.now();
+             // Optional: slightly change color or add a shimmer
+        }
+    }
+
+    // --- Symbiont Agent Class ---
+    class Symbiont {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.vx = (Math.random() - 0.5) * SYMBIONT_SPEED * 0.5;
+            this.vy = (Math.random() - 0.5) * SYMBIONT_SPEED * 0.5;
+            this.radius = 3 + Math.random() * 2;
+            this.color = `hsla(${180 + Math.random() * 60}, 90%, 70%, 0.8)`; // Blues/Cyans
+            this.trail = [];
+            this.MAX_TRAIL = 15;
+            this.target = null; // Target L-System branch point
+            this.timeAtTarget = 0;
+        }
+
+        update(dt) {
+            // Find nearest attractive branch point
+            if (!this.target || Math.random() < 0.05) { // Occasionally re-evaluate target
+                this.findTarget();
+            }
+
+            let ax = 0, ay = 0; // Acceleration
+
+            if (this.target && SYMBIONT_ATTRACTION > 0) {
+                const dx = this.target.x - this.x;
+                const dy = this.target.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > this.radius) {
+                    ax += (dx / dist) * SYMBIONT_ATTRACTION * 0.1; // Attraction force
+                    ay += (dy / dist) * SYMBIONT_ATTRACTION * 0.1;
+                } else { // Reached target
+                    this.timeAtTarget += dt;
+                    if (this.timeAtTarget > 0.5) { // Stay for 0.5s to interact
+                        this.target.instance.interact();
+                        this.timeAtTarget = 0;
+                        this.target = null; // Find new target
+                    }
+                }
+            } else { // No target, random wander
+                 ax += (Math.random() - 0.5) * 0.05;
+                 ay += (Math.random() - 0.5) * 0.05;
+            }
+
+            this.vx += ax * dt * 60; // Scale by typical frame time
+            this.vy += ay * dt * 60;
+
+            // Speed limit & drag
+            const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+            const maxSpeed = SYMBIONT_SPEED * 1.5;
+            if (speed > maxSpeed) {
+                this.vx = (this.vx / speed) * maxSpeed;
+                this.vy = (this.vy / speed) * maxSpeed;
+            }
+            this.vx *= 0.98; // Drag
+            this.vy *= 0.98;
+
+            this.x += this.vx * dt * 60;
+            this.y += this.vy * dt * 60;
+
+            // Keep within bounds (simple wrap-around for now)
+            if (this.x < 0) this.x = canvasWidth; if (this.x > canvasWidth) this.x = 0;
+            if (this.y < 0) this.y = canvasHeight; if (this.y > canvasHeight) this.y = 0;
+            
+            this.trail.unshift({x: this.x, y: this.y});
+            if (this.trail.length > this.MAX_TRAIL) this.trail.pop();
+        }
+        
+        findTarget() {
+            let closestTarget = null;
+            let minDistSq = Infinity;
+            for (const lSystem of lSystems) {
+                for (const point of lSystem.branchPoints) {
+                    const dx = point.x - this.x;
+                    const dy = point.y - this.y;
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq < minDistSq) {
+                        minDistSq = distSq;
+                        closestTarget = point;
+                    }
+                }
+            }
+            this.target = closestTarget;
+        }
+
+        draw(ctx) {
+            // Trail
+            if (this.trail.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                for(let i=1; i < this.trail.length; i++) {
+                    const alpha = 1 - (i / this.trail.length);
+                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                }
+                ctx.strokeStyle = this.color.replace('0.8', `${0.8 * 0.5}`); // Trail is fainter
+                ctx.lineWidth = this.radius * 0.5;
+                ctx.stroke();
+            }
+            // Body
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+    }
+
+
+    // --- Initialization & Reset ---
+    function initSymbionts() {
+        symbionts = [];
+        for (let i = 0; i < NUM_SYMBIONTS; i++) {
+            symbionts.push(new Symbiont(Math.random() * canvasWidth, Math.random() * canvasHeight));
+        }
+        symbiontInfo.textContent = symbionts.length;
+    }
+
+    function clearAndReseed() {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        if (growthIntervalId) clearInterval(growthIntervalId);
+        
+        lSystems = [];
+        // Start with one central L-System
+        addLSystem(canvasWidth / 2, canvasHeight * 0.9, -Math.PI / 2); // Start from bottom center, growing upwards
+        
+        updateParametersFromSliders(); // Ensure params are fresh
+        initSymbionts();
+        
+        ctx.fillStyle = '#2D3748'; // Canvas background
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Restart growth interval
+        if (GROWTH_INTERVAL > 0) {
+             growthIntervalId = setInterval(expandAllLSystems, GROWTH_INTERVAL);
+        }
+        
+        if (isRunning) {
+            animationFrameId = requestAnimationFrame(simulationLoop);
+        } else {
+            drawScene(); // Draw one frame if paused
+        }
+    }
+    
+    function addLSystem(x, y, angle, initialLength, color) {
+        const newLS = new LSystemInstance(x, y, angle, initialLength || SEGMENT_LENGTH, color);
+        lSystems.push(newLS);
+        // Initial draw of the axiom
+        if (isRunning) newLS.draw(ctx);
+    }
+
+    // --- Parameter Updates ---
+    function updateParametersFromSliders() {
+        BRANCH_ANGLE = parseFloat(lSystemAngleSlider.value);
+        SEGMENT_LENGTH = parseFloat(lSystemLengthSlider.value);
+        MAX_ITERATIONS = parseInt(growthIterationsSlider.value);
+        
+        const newGrowthInterval = parseInt(growthSpeedSlider.value);
+        if (newGrowthInterval !== GROWTH_INTERVAL) {
+            GROWTH_INTERVAL = newGrowthInterval;
+            if (growthIntervalId) clearInterval(growthIntervalId);
+            if (GROWTH_INTERVAL > 0 && isRunning) { // Only set interval if positive and running
+                 growthIntervalId = setInterval(expandAllLSystems, GROWTH_INTERVAL);
+            }
+        }
+
+        const newNumSymbionts = parseInt(numSymbiontsSlider.value);
+        if (newNumSymbionts !== NUM_SYMBIONTS) {
+            NUM_SYMBIONTS = newNumSymbionts;
+            initSymbionts(); // Re-initialize if number changes
+        }
+        SYMBIONT_SPEED = parseFloat(symbiontSpeedSlider.value);
+        SYMBIONT_ATTRACTION = parseFloat(symbiontAttractionSlider.value);
+        INTERACTION_BOOST = parseFloat(interactionBoostSlider.value);
+
+        // Update display values
+        lSystemAngleValue.textContent = BRANCH_ANGLE.toFixed(0);
+        lSystemLengthValue.textContent = SEGMENT_LENGTH.toFixed(1);
+        growthIterationsValue.textContent = MAX_ITERATIONS;
+        growthSpeedValue.textContent = GROWTH_INTERVAL;
+        numSymbiontsValue.textContent = NUM_SYMBIONTS;
+        symbiontSpeedValue.textContent = SYMBIONT_SPEED.toFixed(1);
+        symbiontAttractionValue.textContent = SYMBIONT_ATTRACTION.toFixed(2);
+        interactionBoostValue.textContent = INTERACTION_BOOST.toFixed(2);
+    }
+
+    // --- Canvas Setup ---
+    function setCanvasSize() {
+        canvasWidth = vizArea.clientWidth;
+        canvasHeight = vizArea.clientHeight;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+    }
+
+    // --- Simulation Loop ---
+    function expandAllLSystems() {
+        if (!isRunning) return;
+        let anyExpanded = false;
+        for (const lSystem of lSystems) {
+            if(lSystem.expandString()) anyExpanded = true;
+        }
+        // If no L-systems can expand further, maybe stop the interval
+        if (!anyExpanded && lSystems.every(ls => ls.iteration >= MAX_ITERATIONS)) {
+            if (growthIntervalId) clearInterval(growthIntervalId);
+            growthIntervalId = null;
+            console.log("All L-Systems reached max iterations.");
+        }
+    }
+    
+    let lastTimestamp = 0;
+    function simulationLoop(timestamp) {
+        if (!isRunning && animationFrameId) { // Check if explicitly paused
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+            return;
+        }
+        if (!isRunning) return;
+
+
+        const deltaTime = (timestamp - lastTimestamp) / 1000 || 0; 
+        lastTimestamp = timestamp;
+        const dt = Math.min(deltaTime, 0.05); 
+
+        // Update Symbionts
+        for (const symbiont of symbionts) {
+            symbiont.update(dt);
+        }
+        
+        drawScene();
+        animationFrameId = requestAnimationFrame(simulationLoop);
+    }
+
+    function drawScene() {
+        // Clear with background (no trails for L-Systems, they are redrawn fully)
+        ctx.fillStyle = '#2D3748'; 
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Draw L-Systems
+        for (const lSystem of lSystems) {
+            lSystem.draw(ctx);
+        }
+        
+        // Draw Symbionts
+        for (const symbiont of symbionts) {
+            symbiont.draw(ctx);
+        }
+    }
+
+    // --- Event Listeners ---
+    function setupEventListeners() {
+        window.addEventListener('resize', () => {
+            setCanvasSize();
+            // Redraw scene fully on resize, no reset
+            drawScene();
+        });
+
+        playPauseButton.addEventListener('click', () => {
+            isRunning = !isRunning;
+            playPauseButton.textContent = isRunning ? 'Pause' : 'Evolve';
+            if (isRunning) {
+                lastTimestamp = performance.now();
+                if (!animationFrameId) animationFrameId = requestAnimationFrame(simulationLoop);
+                if (!growthIntervalId && GROWTH_INTERVAL > 0 && lSystems.some(ls => ls.iteration < MAX_ITERATIONS)) {
+                    growthIntervalId = setInterval(expandAllLSystems, GROWTH_INTERVAL);
+                }
+            } else {
+                if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+                if (growthIntervalId) { clearInterval(growthIntervalId); growthIntervalId = null; }
+            }
+        });
+
+        clearCanvasButton.addEventListener('click', clearAndReseed);
+        
+        // Slider listeners 
+        const sliders = [
+            lSystemAngleSlider, lSystemLengthSlider, growthIterationsSlider, growthSpeedSlider,
+            numSymbiontsSlider, symbiontSpeedSlider, symbiontAttractionSlider, interactionBoostSlider
+        ];
+        sliders.forEach(slider => {
+            slider.addEventListener('input', updateParametersFromSliders);
+        });
+        
+        // Clicking on canvas to plant a new seed
+        vizArea.addEventListener('click', (e) => {
+            if (lSystems.length > 5) return; // Limit number of concurrent L-Systems
+            const rect = vizArea.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            addLSystem(clickX, clickY, -Math.PI / 2 + (Math.random() - 0.5) * 0.5, SEGMENT_LENGTH);
+        });
+        
+        // Initial Guidance
+        beginGrowthButton.addEventListener('click', () => {
+            initialGuidance.style.opacity = '0';
+            initialGuidance.style.transform = 'translate(-50%, -50%) scale(0.8)';
+            setTimeout(() => { initialGuidance.style.display = 'none'; }, 500);
+            
+            if (!isRunning) { // If it was paused by default before dismissing
+                isRunning = true;
+                playPauseButton.textContent = 'Pause';
+            }
+            // Ensure intervals and animation loop are started
+            if (!animationFrameId) {
+                 lastTimestamp = performance.now();
+                 animationFrameId = requestAnimationFrame(simulationLoop);
+            }
+            if (!growthIntervalId && GROWTH_INTERVAL > 0 && lSystems.some(ls => ls.iteration < MAX_ITERATIONS)) {
+                 growthIntervalId = setInterval(expandAllLSystems, GROWTH_INTERVAL);
+            }
+        });
+    }
+
+    // --- Initial Setup ---
+    setCanvasSize();
+    updateParametersFromSliders(); // Set initial param values from HTML defaults
+    clearAndReseed(); // Initialize with a central L-System and symbionts
+    
+    // Start paused if welcome message is shown, otherwise start playing
+    if (initialGuidance.style.display !== 'none') {
+        isRunning = false;
+        playPauseButton.textContent = 'Evolve';
+        if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+        if (growthIntervalId) { clearInterval(growthIntervalId); growthIntervalId = null; }
+    } else {
+        isRunning = true;
+        playPauseButton.textContent = 'Pause';
+    }
+
+
+    setupEventListeners();
+    console.log("Symbiotic Growth initialized. Click to plant seeds and adjust parameters.");
+    
+    </script>
+</body>
+</html>
