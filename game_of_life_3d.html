@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>10W+++ 3D GoL - Dynamic Resolution</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000510; color: #ddeeff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; }
+        #simulationContainer { flex-grow: 1; display: flex; position: relative; background-color: #000510; }
+        canvas#golCanvas3D { display: block; width: 100%; height: 100%; outline: none; }
+        #title { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); font-size: 1.5em; color: rgba(100, 200, 255, 0.7); text-shadow: 0 0 10px rgba(100, 200, 255, 0.5); pointer-events: none; z-index: 5; }
+        #controlPanel { width: 25%; min-width: 320px; max-width: 400px; background-color: #0a1020; padding: 15px; box-sizing: border-box; overflow-y: auto; border-left: 1px solid #203050; box-shadow: -5px 0 15px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 10px; z-index: 10; }
+        .control-group { background-color: #101828; padding: 10px; border-radius: 4px; border: 1px solid #203050; }
+        .control-group h4 { margin-top: 0; margin-bottom: 8px; color: #70b0ff; font-size: 0.9em; border-bottom: 1px solid #203050; padding-bottom: 5px; }
+        .control-group label { display: block; margin-bottom: 5px; font-size: 0.9em; color: #a0f0ff; }
+        .slider-container { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
+        .control-group input[type="range"] { flex-grow: 1; cursor: pointer; accent-color: #00aaff; }
+        .control-group .nudge-btn, .control-group .info-btn { background-color: #203050; color: #a0f0ff; border: none; border-radius: 3px; padding: 2px 6px; font-size: 0.8em; cursor: pointer; min-width: 20px; text-align: center; }
+        .control-group .nudge-btn:hover, .control-group .info-btn:hover { background-color: #304060; }
+        .control-group .value-display { font-size: 0.8em; color: #80c0ff; min-width: 25px; text-align: right; }
+        .control-button-group { display: flex; gap: 8px; margin-top: 5px; }
+        .control-button { background-color: #007acc; color: white; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-size: 0.9em; text-align: center; transition: background-color 0.2s; flex-grow: 1; }
+        .control-button:hover { background-color: #0099ff; }
+        .control-button.small { padding: 5px 8px; font-size: 0.85em; }
+        .camera-instructions p { font-size: 0.85em; color: #90c0ee; margin: 4px 0; }
+        select { background-color: #203050; color: #a0f0ff; border: 1px solid #304060; padding: 5px; border-radius: 3px; width: 100%; margin-top: 5px; }
+
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); justify-content: center; align-items: center; }
+        .modal-content { background-color: #101828; color: #ddeeff; margin: auto; padding: 25px; border: 1px solid #304060; border-radius: 8px; width: 80%; max-width: 500px; box-shadow: 0 5px 20px rgba(0,120,255,0.2); }
+        .modal-content h3 { margin-top: 0; color: #a0f0ff; }
+        .modal-close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .modal-close-btn:hover, .modal-close-btn:focus { color: #fff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div id="simulationContainer"><canvas id="golCanvas3D"></canvas><div id="title">Gemini's 3D GoL - Dynamic Resolution</div></div>
+    <div id="controlPanel"></div>
+    <div id="infoModal" class="modal"><div class="modal-content"><span class="modal-close-btn">×</span><h3 id="modalTitle">Info</h3><p id="modalDescription">Desc.</p></div></div>
+
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">{ "imports": { "three": "https://unpkg.com/three@0.157.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/" } }</script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const canvas = document.getElementById('golCanvas3D');
+        const controlPanel = document.getElementById('controlPanel');
+        const simContainer = document.getElementById('simulationContainer');
+        const infoModal = document.getElementById('infoModal'), modalCloseBtn = infoModal.querySelector('.modal-close-btn'), modalTitleElem = infoModal.querySelector('#modalTitle'), modalDescriptionElem = infoModal.querySelector('#modalDescription');
+
+        let scene, camera, renderer, controls;
+        let grid, nextGrid, ageGrid; 
+        let cellInstances; 
+        
+        const SIMULATION_VOLUME_WIDTH = 50;
+        const SIMULATION_VOLUME_HEIGHT = 50;
+        const SIMULATION_VOLUME_DEPTH = 50;
+        let actualGridSizeX, actualGridSizeY, actualGridSizeZ; // These are the number of cells
+        let visualCellWidth, visualCellHeight, visualCellDepth; // Visual size of one cell
+
+        const CELL_MATERIAL = new THREE.MeshStandardMaterial({ 
+            roughness: 0.6, metalness: 0.2, vertexColors: false 
+        });
+        const INACTIVE_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
+
+        let simParams = {
+            resolution: 20, // Default number of cells per side (approx)
+            birthMin: 5, birthMax: 5,
+            survivalMin: 4, survivalMax: 6,
+            simulationSpeed: 5,
+            initialPattern: 'random_sparse',
+            boundaryCondition: 'toroidal',
+            maxAgeColor: 14 
+        };
+
+        const ROYGBIV_COLORS = [
+            new THREE.Color(0xff0000), new THREE.Color(0xffa500), new THREE.Color(0xffff00), new THREE.Color(0x00ff00), 
+            new THREE.Color(0x0000ff), new THREE.Color(0x4b0082), new THREE.Color(0xee82ee),
+            new THREE.Color(0xcc0000), new THREE.Color(0xcc8400), new THREE.Color(0xcccc00), new THREE.Color(0x00cc00),
+            new THREE.Color(0x0000cc), new THREE.Color(0x3A006A), new THREE.Color(0xBB6ABE) 
+        ];
+        const DEFAULT_CELL_COLOR = new THREE.Color(0x888888);
+
+        let isPaused = false;
+        let generationCount = 0;
+        let lastUpdateTime = 0;
+        const dummy = new THREE.Object3D();
+        let wireframeBoxMesh;
+
+        function calculateGridAndCellDimensions() {
+            // Resolution directly defines the number of cells in each dimension
+            actualGridSizeX = Math.max(1, Math.floor(simParams.resolution));
+            actualGridSizeY = Math.max(1, Math.floor(simParams.resolution));
+            actualGridSizeZ = Math.max(1, Math.floor(simParams.resolution));
+
+            // Visual size of each cell is determined by dividing fixed volume by number of cells
+            visualCellWidth = SIMULATION_VOLUME_WIDTH / actualGridSizeX;
+            visualCellHeight = SIMULATION_VOLUME_HEIGHT / actualGridSizeY;
+            visualCellDepth = SIMULATION_VOLUME_DEPTH / actualGridSizeZ;
+        }
+
+        function createGridAndAge(sizeX, sizeY, sizeZ) {
+            const newGrid = Array.from({ length: sizeX }, () => Array.from({ length: sizeY }, () => new Uint8Array(sizeZ).fill(0)));
+            const newAgeGrid = Array.from({ length: sizeX }, () => Array.from({ length: sizeY }, () => new Uint16Array(sizeZ).fill(0)));
+            return { grid: newGrid, ageGrid: newAgeGrid };
+        }
+
+        function initGrid() {
+            const grids = createGridAndAge(actualGridSizeX, actualGridSizeY, actualGridSizeZ);
+            grid = grids.grid;
+            ageGrid = grids.ageGrid;
+            
+            const nextGrids = createGridAndAge(actualGridSizeX, actualGridSizeY, actualGridSizeZ);
+            nextGrid = nextGrids.grid;
+
+            generationCount = 0;
+            if(document.getElementById('generationCountDisplay')) document.getElementById('generationCountDisplay').textContent = generationCount;
+
+            const centerX = Math.floor(actualGridSizeX / 2);
+            const centerY = Math.floor(actualGridSizeY / 2);
+            const centerZ = Math.floor(actualGridSizeZ / 2);
+
+            for (let x = 0; x < actualGridSizeX; x++) {
+                for (let y = 0; y < actualGridSizeY; y++) {
+                    for (let z = 0; z < actualGridSizeZ; z++) {
+                        let alive = 0;
+                        switch (simParams.initialPattern) {
+                            case 'random_sparse': alive = Math.random() < 0.1 ? 1 : 0; break;
+                            case 'random_dense':  alive = Math.random() < 0.4 ? 1 : 0; break;
+                            case 'central_block':
+                                const d = Math.max(1, Math.floor(actualGridSizeX / 7)); // Block size relative to resolution
+                                if (x >= centerX - d && x <= centerX + d && y >= centerY - d && y <= centerY + d && z >= centerZ - d && z <= centerZ + d) alive = 1;
+                                break;
+                            case 'small_cluster': 
+                                if (actualGridSizeX >=2 && actualGridSizeY >=2 && actualGridSizeZ >=2 &&
+                                    x >= centerX - 1 && x <= centerX && y >= centerY -1 && y <= centerY && z >= centerZ -1 && z <= centerZ) alive = 1;
+                                break;
+                            case 'empty': alive = 0; break;
+                        }
+                        grid[x][y][z] = alive;
+                        ageGrid[x][y][z] = alive ? 1 : 0; 
+                    }
+                }
+            }
+            updateInstancedMesh();
+        }
+
+        function countAliveNeighbors(x, y, z) {
+            let count = 0;
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        if (dx === 0 && dy === 0 && dz === 0) continue;
+                        let nx = x + dx; let ny = y + dy; let nz = z + dz;
+                        if (simParams.boundaryCondition === 'toroidal') {
+                            nx = (nx + actualGridSizeX) % actualGridSizeX;
+                            ny = (ny + actualGridSizeY) % actualGridSizeY;
+                            nz = (nz + actualGridSizeZ) % actualGridSizeZ;
+                            count += grid[nx][ny][nz];
+                        } else { 
+                            if (nx >= 0 && nx < actualGridSizeX && ny >= 0 && ny < actualGridSizeY && nz >= 0 && nz < actualGridSizeZ) {
+                                count += grid[nx][ny][nz];
+                            }
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+
+        function updateGeneration() {
+            let changed = false;
+            let tempNextAgeGrid = createGridAndAge(actualGridSizeX, actualGridSizeY, actualGridSizeZ).ageGrid;
+            for (let x = 0; x < actualGridSizeX; x++) {
+                for (let y = 0; y < actualGridSizeY; y++) {
+                    for (let z = 0; z < actualGridSizeZ; z++) {
+                        const aliveNeighbors = countAliveNeighbors(x, y, z);
+                        const isAlive = grid[x][y][z] === 1;
+                        let nextState = 0; let nextAge = 0;
+                        if (isAlive) { if (aliveNeighbors >= simParams.survivalMin && aliveNeighbors <= simParams.survivalMax) { nextState = 1; nextAge = ageGrid[x][y][z] + 1; } else { nextState = 0; nextAge = 0; }
+                        } else { if (aliveNeighbors >= simParams.birthMin && aliveNeighbors <= simParams.birthMax) { nextState = 1; nextAge = 1; } else { nextState = 0; nextAge = 0; } }
+                        nextGrid[x][y][z] = nextState; tempNextAgeGrid[x][y][z] = nextAge;
+                        if (nextState !== grid[x][y][z]) changed = true;
+                    }
+                }
+            }
+            [grid, nextGrid] = [nextGrid, grid]; ageGrid = tempNextAgeGrid; 
+            if (changed || generationCount === 0) updateInstancedMesh(); // Force update on first gen too
+            generationCount++;
+            if(document.getElementById('generationCountDisplay')) document.getElementById('generationCountDisplay').textContent = generationCount;
+            return changed;
+        }
+
+        function initScene() {
+            scene = new THREE.Scene();
+            const aspect = simContainer.clientWidth / simContainer.clientHeight;
+            camera = new THREE.PerspectiveCamera(60, aspect, 0.1, Math.max(SIMULATION_VOLUME_WIDTH, SIMULATION_VOLUME_HEIGHT, SIMULATION_VOLUME_DEPTH) * 3);
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(simContainer.clientWidth, simContainer.clientHeight); renderer.setPixelRatio(window.devicePixelRatio);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; controls.dampingFactor = 0.05;
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); directionalLight.position.set(1, 1, 1).normalize(); scene.add(directionalLight);
+            const boxGeom = new THREE.BoxGeometry(SIMULATION_VOLUME_WIDTH, SIMULATION_VOLUME_HEIGHT, SIMULATION_VOLUME_DEPTH);
+            const boxMat = new THREE.MeshBasicMaterial({color: 0x334455, wireframe: true, transparent: true, opacity: 0.3});
+            wireframeBoxMesh = new THREE.Mesh(boxGeom, boxMat);
+            wireframeBoxMesh.position.set(SIMULATION_VOLUME_WIDTH / 2, SIMULATION_VOLUME_HEIGHT / 2, SIMULATION_VOLUME_DEPTH / 2);
+            scene.add(wireframeBoxMesh);
+            const targetX = SIMULATION_VOLUME_WIDTH / 2; const targetY = SIMULATION_VOLUME_HEIGHT / 2; const targetZ = SIMULATION_VOLUME_DEPTH / 2;
+            camera.position.set(targetX, targetY + SIMULATION_VOLUME_HEIGHT * 0.5, targetZ + SIMULATION_VOLUME_DEPTH * 1.2);
+            controls.target.set(targetX, targetY, targetZ);
+            renderer.domElement.addEventListener('pointermove', onPointerMove);
+        }
+
+        function initInstancedMesh() {
+            const maxInstances = actualGridSizeX * actualGridSizeY * actualGridSizeZ;
+            if (cellInstances) {
+                scene.remove(cellInstances);
+                if (cellInstances.geometry) cellInstances.geometry.dispose();
+            }
+            // Create new cell geometry with the calculated visual size, applying a small gap
+            const cellGeom = new THREE.BoxGeometry(
+                visualCellWidth * 0.9, 
+                visualCellHeight * 0.9, 
+                visualCellDepth * 0.9
+            );
+            cellInstances = new THREE.InstancedMesh(cellGeom, CELL_MATERIAL.clone(), maxInstances);
+            cellInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            cellInstances.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxInstances * 3), 3);
+            cellInstances.instanceColor.setUsage(THREE.DynamicDrawUsage);
+            scene.add(cellInstances);
+            for (let i = 0; i < maxInstances; i++) cellInstances.setMatrixAt(i, INACTIVE_MATRIX);
+            cellInstances.count = maxInstances;
+            cellInstances.instanceMatrix.needsUpdate = true;
+            if(cellInstances.instanceColor) cellInstances.instanceColor.needsUpdate = true;
+        }
+        
+        function getAgeColor(age) {
+            if (age <= 0) return DEFAULT_CELL_COLOR;
+            const colorIndex = Math.min(age - 1, ROYGBIV_COLORS.length - 1, simParams.maxAgeColor -1);
+            return ROYGBIV_COLORS[colorIndex];
+        }
+
+        function updateInstancedMesh() {
+            if (!cellInstances || !grid || !ageGrid) return;
+            let needsMatrixUpdate = false; let needsColorUpdate = false;
+            for (let x = 0; x < actualGridSizeX; x++) {
+                for (let y = 0; y < actualGridSizeY; y++) {
+                    for (let z = 0; z < actualGridSizeZ; z++) {
+                        const cellInstanceIndex = z + (y * actualGridSizeZ) + (x * actualGridSizeY * actualGridSizeZ);
+                        if (cellInstanceIndex >= cellInstances.count) continue; 
+                        if (grid[x][y][z] === 1) {
+                            dummy.position.set(
+                                (x + 0.5) * visualCellWidth, 
+                                (y + 0.5) * visualCellHeight, 
+                                (z + 0.5) * visualCellDepth
+                            );
+                            dummy.updateMatrix();
+                            cellInstances.setMatrixAt(cellInstanceIndex, dummy.matrix);
+                            needsMatrixUpdate = true;
+                            const age = ageGrid[x][y][z]; const color = getAgeColor(age);
+                            if (cellInstances.instanceColor) { cellInstances.setColorAt(cellInstanceIndex, color); needsColorUpdate = true; }
+                        } else { cellInstances.setMatrixAt(cellInstanceIndex, INACTIVE_MATRIX); needsMatrixUpdate = true; }
+                    }
+                }
+            }
+            if (needsMatrixUpdate) cellInstances.instanceMatrix.needsUpdate = true;
+            if (needsColorUpdate && cellInstances.instanceColor) cellInstances.instanceColor.needsUpdate = true;
+        }
+
+        function animate(currentTime) {
+            requestAnimationFrame(animate); controls.update();
+            const interval = 1000 / simParams.simulationSpeed;
+            if (!isPaused && simParams.simulationSpeed > 0 && currentTime - lastUpdateTime > interval) {
+                lastUpdateTime = currentTime; updateGeneration();
+            }
+            renderer.render(scene, camera);
+        }
+        
+        function setupControls() {
+            controlPanel.innerHTML = ''; 
+            const simControlGroup = document.createElement('div'); simControlGroup.className = 'control-group';
+            simControlGroup.innerHTML = `<h4>Simulation</h4> <div class="control-button-group"> <button id="playPauseBtn" class="control-button">${isPaused ? "Play" : "Pause"}</button> <button id="stepBtn" class="control-button small">Step</button> </div> <button id="resetBtn" class="control-button" style="margin-top:8px;">Reset Simulation</button> <label for="initialPatternSelect" style="margin-top:8px;">Initial Pattern:</label> <select id="initialPatternSelect"> <option value="random_sparse">Random Sparse (10%)</option> <option value="random_dense">Random Dense (40%)</option> <option value="central_block">Central Block</option> <option value="small_cluster">Small Cluster</option> <option value="empty">Empty</option> </select> <label for="boundaryConditionSelect" style="margin-top:8px;">Boundary Condition:</label> <select id="boundaryConditionSelect"> <option value="toroidal">Toroidal (Wrap)</option> <option value="fixed">Fixed (Dead Edges)</option> </select> <p style="font-size:0.85em; margin-top:8px;">Generation: <span id="generationCountDisplay">0</span></p>`;
+            controlPanel.appendChild(simControlGroup);
+            document.getElementById('playPauseBtn').onclick = () => { isPaused = !isPaused; document.getElementById('playPauseBtn').textContent = isPaused ? "Play" : "Pause"; };
+            document.getElementById('stepBtn').onclick = () => { if(isPaused || simParams.simulationSpeed === 0) updateGeneration(); };
+            document.getElementById('resetBtn').onclick = fullReset;
+            document.getElementById('initialPatternSelect').value = simParams.initialPattern;
+            document.getElementById('initialPatternSelect').onchange = (e) => { simParams.initialPattern = e.target.value; fullReset(); };
+            document.getElementById('boundaryConditionSelect').value = simParams.boundaryCondition;
+            document.getElementById('boundaryConditionSelect').onchange = (e) => { simParams.boundaryCondition = e.target.value; };
+
+            const paramControlConfigs = [
+                { type: 'header', label: 'Grid Setup (Requires Reset)'},
+                { id: 'resolution', label: 'Grid Resolution', min: 5, max: 50, step: 1, initial: simParams.resolution, info: "Number of cells along each axis of the fixed simulation volume. Higher = more, smaller cells. Requires Reset." },
+                { type: 'header', label: 'Game of Life Rules'},
+                { id: 'birthMin', label: 'Birth Min', min: 0, max: 26, step: 1, initial: simParams.birthMin, info: "Min live neighbors for a dead cell to be born." },
+                { id: 'birthMax', label: 'Birth Max', min: 0, max: 26, step: 1, initial: simParams.birthMax, info: "Max live neighbors for a dead cell to be born." },
+                { id: 'survivalMin', label: 'Survival Min', min: 0, max: 26, step: 1, initial: simParams.survivalMin, info: "Min live neighbors for a live cell to survive." },
+                { id: 'survivalMax', label: 'Survival Max', min: 0, max: 26, step: 1, initial: simParams.survivalMax, info: "Max live neighbors for a live cell to survive." },
+                { type: 'header', label: 'Simulation & Visuals'},
+                { id: 'simulationSpeed', label: 'Speed (Gen/s)', min: 0, max: 30, step: 0.1, initial: simParams.simulationSpeed, format: v => v.toFixed(1), info: "Generations per second. Set to 0 to manually step." },
+                { id: 'maxAgeColor', label: 'Max Age for Color', min: 1, max: ROYGBIV_COLORS.length, step: 1, initial: simParams.maxAgeColor, info: `Cells older than this share the last color. (Max ${ROYGBIV_COLORS.length})` },
+            ];
+            
+            let currentHeaderGroup = null;
+            paramControlConfigs.forEach(param => {
+                if (param.type === 'header') { currentHeaderGroup = document.createElement('div'); currentHeaderGroup.className = 'control-group'; currentHeaderGroup.innerHTML = `<h4>${param.label}</h4>`; controlPanel.appendChild(currentHeaderGroup); return; }
+                if (!currentHeaderGroup) { currentHeaderGroup = document.createElement('div'); currentHeaderGroup.className = 'control-group'; controlPanel.appendChild(currentHeaderGroup); }
+                const labelEl = document.createElement('label'); labelEl.setAttribute('for', param.id + '-slider'); labelEl.textContent = param.label + ': ';
+                const valueDisplay = document.createElement('span'); valueDisplay.id = param.id + '-value'; valueDisplay.className = 'value-display';
+                valueDisplay.textContent = param.format ? param.format(param.initial) : param.initial; labelEl.appendChild(valueDisplay);
+                const sliderContainer = document.createElement('div'); sliderContainer.className = 'slider-container';
+                const minusBtn = document.createElement('button'); minusBtn.className = 'nudge-btn'; minusBtn.textContent = '-';
+                const slider = document.createElement('input'); slider.type = 'range'; slider.id = param.id + '-slider';
+                slider.min = param.min; slider.max = param.max; slider.step = param.step; slider.value = param.initial;
+                const plusBtn = document.createElement('button'); plusBtn.className = 'nudge-btn'; plusBtn.textContent = '+';
+                const infoBtn = document.createElement('button'); infoBtn.className = 'info-btn'; infoBtn.textContent = '?';
+                infoBtn.onclick = () => { modalTitleElem.textContent = param.label; modalDescriptionElem.textContent = param.info || "No description."; infoModal.style.display = 'flex'; };
+                slider.addEventListener('input', (e) => {
+                    let val = parseFloat(e.target.value);
+                    if (param.id === 'birthMin' && val > simParams.birthMax) { simParams.birthMax = val; if(document.getElementById('birthMax-slider')) document.getElementById('birthMax-slider').value = val; if(document.getElementById('birthMax-value')) document.getElementById('birthMax-value').textContent = val; }
+                    if (param.id === 'birthMax' && val < simParams.birthMin) { simParams.birthMin = val; if(document.getElementById('birthMin-slider')) document.getElementById('birthMin-slider').value = val; if(document.getElementById('birthMin-value')) document.getElementById('birthMin-value').textContent = val; }
+                    if (param.id === 'survivalMin' && val > simParams.survivalMax) { simParams.survivalMax = val; if(document.getElementById('survivalMax-slider')) document.getElementById('survivalMax-slider').value = val; if(document.getElementById('survivalMax-value')) document.getElementById('survivalMax-value').textContent = val; }
+                    if (param.id === 'survivalMax' && val < simParams.survivalMin) { simParams.survivalMin = val; if(document.getElementById('survivalMin-slider')) document.getElementById('survivalMin-slider').value = val; if(document.getElementById('survivalMin-value')) document.getElementById('survivalMin-value').textContent = val; }
+                    simParams[param.id] = val; valueDisplay.textContent = param.format ? param.format(val) : val;
+                    if (param.id === 'resolution') { /* User must click reset for this */ }
+                });
+                minusBtn.addEventListener('click', () => { slider.value = Math.max(parseFloat(slider.min), parseFloat(slider.value) - parseFloat(slider.step)); slider.dispatchEvent(new Event('input')); });
+                plusBtn.addEventListener('click', () => { slider.value = Math.min(parseFloat(slider.max), parseFloat(slider.value) + parseFloat(slider.step)); slider.dispatchEvent(new Event('input')); });
+                currentHeaderGroup.appendChild(labelEl); sliderContainer.appendChild(minusBtn); sliderContainer.appendChild(slider); sliderContainer.appendChild(plusBtn); sliderContainer.appendChild(infoBtn);
+                currentHeaderGroup.appendChild(sliderContainer);
+            });
+            const cameraGroup = document.createElement('div'); cameraGroup.className = 'control-group camera-instructions';
+            cameraGroup.innerHTML = `<h4>Camera Controls</h4> <p><b>Orbit:</b> Left-Click + Drag</p> <p><b>Zoom:</b> Mouse Wheel</p <p><b>Pan:</b> Right-Click + Drag</p>`;
+            controlPanel.appendChild(cameraGroup);
+            modalCloseBtn.onclick = () => { infoModal.style.display = 'none'; };
+            window.onclick = (event) => { if (event.target === infoModal) infoModal.style.display = 'none'; };
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            const newWidth = simContainer.clientWidth; const newHeight = simContainer.clientHeight;
+            camera.aspect = newWidth / newHeight; camera.updateProjectionMatrix();
+            renderer.setSize(newWidth, newHeight);
+        }
+        function onPointerMove(event) { /* For future cell picking maybe */ }
+
+        function fullReset() {
+            calculateGridAndCellDimensions(); // Calculate grid sizes & visual cell sizes
+            const targetX = SIMULATION_VOLUME_WIDTH / 2; const targetY = SIMULATION_VOLUME_HEIGHT / 2; const targetZ = SIMULATION_VOLUME_DEPTH / 2;
+            if (controls) controls.target.set(targetX, targetY, targetZ);
+            if (camera) { camera.position.set(targetX, targetY + SIMULATION_VOLUME_HEIGHT * 0.5, targetZ + SIMULATION_VOLUME_DEPTH * 1.2); camera.lookAt(targetX, targetY, targetZ); }
+            initInstancedMesh(); 
+            initGrid(); 
+        }
+
+        window.addEventListener('resize', onWindowResize);
+        initScene();    
+        setupControls(); 
+        fullReset();    
+        animate(0);      
+    </script>
+</body>
+</html>

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>10W+ Particle Emergence with Controls</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000510; /* Deep cosmic black */
+            color: #ddeeff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            height: 100vh;
+        }
+
+        #simulationContainer {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative; /* For title positioning */
+        }
+
+        canvas {
+            display: block;
+            background-color: transparent;
+            box-shadow: 0 0 30px rgba(0, 120, 255, 0.3);
+            border-radius: 5px;
+        }
+
+        #title {
+            position: absolute;
+            bottom: 15px;
+            width: 100%;
+            text-align: center;
+            font-size: 1.5em;
+            color: rgba(100, 200, 255, 0.7);
+            text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+            pointer-events: none;
+        }
+
+        #controlPanel {
+            width: 20%;
+            min-width: 280px; /* Ensure readability */
+            max-width: 350px;
+            background-color: #0a1020; /* Slightly lighter than bg */
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            border-left: 1px solid #203050;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 15px; /* Spacing between control groups */
+        }
+
+        .control-group {
+            background-color: #101828;
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid #203050;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+            color: #a0f0ff;
+        }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 5px;
+        }
+
+        .control-group input[type="range"] {
+            flex-grow: 1;
+            cursor: pointer;
+            accent-color: #00aaff; /* Modern way to color sliders */
+        }
+
+        .control-group .nudge-btn, .control-group .info-btn {
+            background-color: #203050;
+            color: #a0f0ff;
+            border: none;
+            border-radius: 3px;
+            padding: 4px 8px;
+            font-size: 0.9em;
+            cursor: pointer;
+            min-width: 25px;
+            text-align: center;
+        }
+        .control-group .nudge-btn:hover, .control-group .info-btn:hover {
+            background-color: #304060;
+        }
+
+        .control-group .value-display {
+            font-size: 0.85em;
+            color: #80c0ff;
+            min-width: 40px; /* To prevent layout jumps */
+            text-align: right;
+        }
+        
+        .control-button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+        .control-button:hover {
+            background-color: #0099ff;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6); /* Dim background */
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: #101828;
+            color: #ddeeff;
+            margin: auto;
+            padding: 25px;
+            border: 1px solid #304060;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 500px;
+            box-shadow: 0 5px 20px rgba(0,120,255,0.2);
+        }
+        
+        .modal-content h3 {
+            margin-top: 0;
+            color: #a0f0ff;
+        }
+
+        .modal-close-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .modal-close-btn:hover,
+        .modal-close-btn:focus {
+            color: #fff;
+            text-decoration: none;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="simulationContainer">
+        <canvas id="particleCanvas"></canvas>
+        <div id="title">Gemini's Mindblown Emergence v10W+</div>
+    </div>
+
+    <div id="controlPanel">
+        <!-- Controls will be dynamically added here by JavaScript -->
+    </div>
+
+    <!-- Modal Structure -->
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close-btn">×</span>
+            <h3 id="modalTitle">Parameter Information</h3>
+            <p id="modalDescription">Description will load here.</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+        const controlPanel = document.getElementById('controlPanel');
+        const infoModal = document.getElementById('infoModal');
+        const modalCloseBtn = infoModal.querySelector('.modal-close-btn');
+        const modalTitleElem = infoModal.querySelector('#modalTitle');
+        const modalDescriptionElem = infoModal.querySelector('#modalDescription');
+
+        let particles = [];
+        let mouse = { x: null, y: null, isAttracting: true };
+        
+        const simParams = {
+            numParticles: 250,
+            particleRadiusMin: 1,
+            particleRadiusMax: 3.5,
+            maxVelocity: 2.5,
+            damping: 0.985,
+            gravityStrength: 0.003,
+            repulsionStrength: 0.8,
+            interactionRadius: 150, // Will be squared in sim
+            repulsionRadius: 20,    // Will be squared in sim
+            mouseInfluenceRadius: 200, // Will be squared in sim
+            mouseStrength: 0.08,
+            trailAlpha: 0.15,
+        };
+
+        // Derived parameters (squared for efficiency in calculations)
+        let INTERACTION_RADIUS_SQ = Math.pow(simParams.interactionRadius, 2);
+        let REPULSION_RADIUS_SQ = Math.pow(simParams.repulsionRadius, 2);
+        let MOUSE_INFLUENCE_RADIUS_SQ = Math.pow(simParams.mouseInfluenceRadius, 2);
+
+        const paramConfigs = [
+            { id: 'numParticles', label: 'Particle Count', min: 50, max: 700, step: 10, initial: simParams.numParticles, desc: 'Number of particles. More particles mean more complex interactions but higher CPU load. Requires "Reset Simulation" to apply.' },
+            { id: 'gravityStrength', label: 'Gravity Strength', min: 0, max: 0.01, step: 0.0001, initial: simParams.gravityStrength, desc: 'Strength of long-range attraction between particles. Higher values cause faster clumping.', format: v => v.toFixed(4) },
+            { id: 'repulsionStrength', label: 'Repulsion Strength', min: 0, max: 3.0, step: 0.05, initial: simParams.repulsionStrength, desc: 'Strength of short-range repulsion. Prevents particles from collapsing.', format: v => v.toFixed(2) },
+            { id: 'repulsionRadius', label: 'Repulsion Radius', min: 5, max: 70, step: 1, initial: simParams.repulsionRadius, desc: 'Distance within which repulsion force acts. Defines personal space for particles.' },
+            { id: 'interactionRadius', label: 'Interaction Radius', min: 50, max: 400, step: 5, initial: simParams.interactionRadius, desc: 'Maximum distance for gravity/repulsion calculations between particles.' },
+            { id: 'mouseStrength', label: 'Mouse Strength', min: 0, max: 0.2, step: 0.005, initial: simParams.mouseStrength, desc: 'How strongly the mouse attracts or repels particles.', format: v => v.toFixed(3) },
+            { id: 'damping', label: 'Damping Factor', min: 0.900, max: 0.999, step: 0.001, initial: simParams.damping, desc: 'Energy loss per frame (1-value). Lower values = particles slow down faster. 0.999 is low damping, 0.9 is high damping.', format: v => v.toFixed(3) },
+            { id: 'maxVelocity', label: 'Max Velocity', min: 0.5, max: 10, step: 0.1, initial: simParams.maxVelocity, desc: 'Maximum speed a particle can achieve. Prevents runaway acceleration.', format: v => v.toFixed(1) },
+            { id: 'trailAlpha', label: 'Trail Opacity', min: 0.01, max: 0.5, step: 0.01, initial: simParams.trailAlpha, desc: 'Opacity of the particle trails. Lower values create longer, more pronounced trails.', format: v => v.toFixed(2) }
+        ];
+
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.radius = Math.random() * (simParams.particleRadiusMax - simParams.particleRadiusMin) + simParams.particleRadiusMin;
+                this.mass = this.radius * this.radius * Math.PI;
+                this.baseHue = Math.random() * 60 + 180; // Blues and Cyans
+            }
+
+            update(deltaTime) {
+                this.vx *= simParams.damping;
+                this.vy *= simParams.damping;
+
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > simParams.maxVelocity) {
+                    this.vx = (this.vx / speed) * simParams.maxVelocity;
+                    this.vy = (this.vy / speed) * simParams.maxVelocity;
+                }
+
+                this.x += this.vx * deltaTime;
+                this.y += this.vy * deltaTime;
+
+                if (this.x - this.radius < 0) { this.x = this.radius; this.vx *= -0.8; }
+                else if (this.x + this.radius > canvas.width) { this.x = canvas.width - this.radius; this.vx *= -0.8; }
+                if (this.y - this.radius < 0) { this.y = this.radius; this.vy *= -0.8; }
+                else if (this.y + this.radius > canvas.height) { this.y = canvas.height - this.radius; this.vy *= -0.8; }
+            }
+
+            applyForce(fx, fy) {
+                this.vx += fx / this.mass;
+                this.vy += fy / this.mass;
+            }
+
+            draw() {
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const lightness = 50 + Math.min(speed * 15, 40);
+                const saturation = 70 + Math.min(speed * 10, 30);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsl(${this.baseHue}, ${saturation}%, ${lightness}%)`;
+                ctx.shadowColor = `hsl(${this.baseHue}, 100%, 60%)`;
+                ctx.shadowBlur = this.radius * 3 + 5;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        function updateDerivedParams() {
+            INTERACTION_RADIUS_SQ = Math.pow(simParams.interactionRadius, 2);
+            REPULSION_RADIUS_SQ = Math.pow(simParams.repulsionRadius, 2);
+            MOUSE_INFLUENCE_RADIUS_SQ = Math.pow(simParams.mouseInfluenceRadius, 2); // Though not slider controlled currently
+        }
+
+        function init() {
+            const simContainer = document.getElementById('simulationContainer');
+            canvas.width = simContainer.clientWidth * 0.95; // Adjusted to fit better
+            canvas.height = simContainer.clientHeight * 0.9;
+
+            particles = [];
+            for (let i = 0; i < simParams.numParticles; i++) {
+                particles.push(new Particle(
+                    Math.random() * canvas.width,
+                    Math.random() * canvas.height
+                ));
+            }
+            updateDerivedParams(); // Ensure derived params are current after init
+             if (document.getElementById('particleCountDisplay')) {
+                document.getElementById('particleCountDisplay').textContent = simParams.numParticles;
+            }
+        }
+
+        function handleInteractions(deltaTime) {
+            for (let i = 0; i < particles.length; i++) {
+                const p1 = particles[i];
+
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p2 = particles[j];
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const distSq = dx * dx + dy * dy;
+
+                    if (distSq < INTERACTION_RADIUS_SQ && distSq > 0.001) {
+                        const dist = Math.sqrt(distSq);
+                        
+                        const forceMagnitudeAttract = simParams.gravityStrength * p1.mass * p2.mass / dist;
+                        const fax = (dx / dist) * forceMagnitudeAttract;
+                        const fay = (dy / dist) * forceMagnitudeAttract;
+                        p1.applyForce(fax, fay);
+                        p2.applyForce(-fax, -fay);
+
+                        if (distSq < REPULSION_RADIUS_SQ) {
+                            const forceMagnitudeRepel = simParams.repulsionStrength * (1 - dist / simParams.repulsionRadius);
+                            const frx = -(dx / dist) * forceMagnitudeRepel;
+                            const fry = -(dy / dist) * forceMagnitudeRepel;
+                            p1.applyForce(frx, fry);
+                            p2.applyForce(-frx, -fry);
+                        }
+                    }
+                }
+
+                if (mouse.x !== null && mouse.y !== null) {
+                    const dxMouse = mouse.x - p1.x;
+                    const dyMouse = mouse.y - p1.y;
+                    const distSqMouse = dxMouse * dxMouse + dyMouse * dyMouse;
+
+                    if (distSqMouse < MOUSE_INFLUENCE_RADIUS_SQ && distSqMouse > 1) {
+                        const distMouse = Math.sqrt(distSqMouse);
+                        let forceMagnitudeMouse = simParams.mouseStrength * (1 - distMouse / simParams.mouseInfluenceRadius);
+                        forceMagnitudeMouse *= p1.mass;
+                        if (!mouse.isAttracting) forceMagnitudeMouse *= -2;
+                        
+                        const fmx = (dxMouse / distMouse) * forceMagnitudeMouse;
+                        const fmy = (dyMouse / distMouse) * forceMagnitudeMouse;
+                        p1.applyForce(fmx, fmy);
+                    }
+                }
+            }
+        }
+        
+        let lastTime = 0;
+        function animate(currentTime) {
+            const deltaTime = Math.min((currentTime - lastTime) / 16.66, 3);
+            lastTime = currentTime;
+
+            ctx.fillStyle = `rgba(0, 5, 16, ${simParams.trailAlpha})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            handleInteractions(deltaTime);
+
+            particles.forEach(p => {
+                p.update(deltaTime);
+                p.draw();
+            });
+
+            requestAnimationFrame(animate);
+        }
+        
+        function setupControls() {
+            // Mouse Interaction Toggle
+            const mouseToggleGroup = document.createElement('div');
+            mouseToggleGroup.className = 'control-group';
+            const mouseModeButton = document.createElement('button');
+            mouseModeButton.id = 'mouseModeButton';
+            mouseModeButton.className = 'control-button';
+            mouseModeButton.textContent = `Mouse: ${mouse.isAttracting ? "ATTRACT" : "REPEL"}`;
+            mouseModeButton.onclick = () => {
+                mouse.isAttracting = !mouse.isAttracting;
+                mouseModeButton.textContent = `Mouse: ${mouse.isAttracting ? "ATTRACT" : "REPEL"}`;
+            };
+            mouseToggleGroup.appendChild(mouseModeButton);
+            controlPanel.appendChild(mouseToggleGroup);
+
+            // Parameter Sliders
+            paramConfigs.forEach(param => {
+                const group = document.createElement('div');
+                group.className = 'control-group';
+
+                const label = document.createElement('label');
+                label.setAttribute('for', param.id + '-slider');
+                label.textContent = param.label + ': ';
+                
+                const valueDisplay = document.createElement('span');
+                valueDisplay.id = param.id + '-value';
+                valueDisplay.className = 'value-display';
+                const initialFormattedValue = param.format ? param.format(param.initial) : param.initial;
+                valueDisplay.textContent = initialFormattedValue;
+                label.appendChild(valueDisplay);
+
+                const sliderContainer = document.createElement('div');
+                sliderContainer.className = 'slider-container';
+
+                const minusBtn = document.createElement('button');
+                minusBtn.className = 'nudge-btn';
+                minusBtn.textContent = '-';
+                
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.id = param.id + '-slider';
+                slider.min = param.min;
+                slider.max = param.max;
+                slider.step = param.step;
+                slider.value = param.initial;
+
+                const plusBtn = document.createElement('button');
+                plusBtn.className = 'nudge-btn';
+                plusBtn.textContent = '+';
+
+                const infoBtn = document.createElement('button');
+                infoBtn.className = 'info-btn';
+                infoBtn.textContent = '?';
+                infoBtn.dataset.paramId = param.id;
+                infoBtn.dataset.paramLabel = param.label;
+                infoBtn.dataset.paramDesc = param.desc;
+
+                slider.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    simParams[param.id] = val;
+                    valueDisplay.textContent = param.format ? param.format(val) : val;
+                    if (param.id === 'repulsionRadius' || param.id === 'interactionRadius') {
+                        updateDerivedParams();
+                    }
+                     if (param.id === 'numParticles' && document.getElementById('particleCountDisplay')) {
+                        document.getElementById('particleCountDisplay').textContent = val; // Update special display for numParticles
+                    }
+                });
+
+                minusBtn.addEventListener('click', () => {
+                    slider.value = Math.max(param.min, parseFloat(slider.value) - param.step);
+                    slider.dispatchEvent(new Event('input'));
+                });
+                plusBtn.addEventListener('click', () => {
+                    slider.value = Math.min(param.max, parseFloat(slider.value) + param.step);
+                    slider.dispatchEvent(new Event('input'));
+                });
+                infoBtn.addEventListener('click', (e) => {
+                    modalTitleElem.textContent = e.target.dataset.paramLabel;
+                    modalDescriptionElem.textContent = e.target.dataset.paramDesc;
+                    infoModal.style.display = 'flex';
+                });
+                
+                group.appendChild(label);
+                sliderContainer.appendChild(minusBtn);
+                sliderContainer.appendChild(slider);
+                sliderContainer.appendChild(plusBtn);
+                sliderContainer.appendChild(infoBtn);
+                group.appendChild(sliderContainer);
+                
+                // Special handling for particle count display integrated with its slider label
+                if (param.id === 'numParticles') {
+                     label.textContent = param.label + ': '; // Clear old label text
+                     const particleCountSpan = document.createElement('span');
+                     particleCountSpan.id = 'particleCountDisplay';
+                     particleCountSpan.className = 'value-display';
+                     particleCountSpan.textContent = simParams.numParticles;
+                     label.appendChild(particleCountSpan); // Add it to the label
+                     valueDisplay.style.display = 'none'; // Hide the generic value display for this one
+                }
+
+
+                controlPanel.appendChild(group);
+            });
+
+            // Reset Simulation Button
+            const resetGroup = document.createElement('div');
+            resetGroup.className = 'control-group';
+            const resetButton = document.createElement('button');
+            resetButton.id = 'resetButton';
+            resetButton.className = 'control-button';
+            resetButton.textContent = 'Reset Simulation';
+            resetButton.onclick = () => {
+                init(); // Re-initialize with current simParams (applies numParticles)
+            };
+            resetGroup.appendChild(resetButton);
+            controlPanel.appendChild(resetGroup);
+
+            // Modal close functionality
+            modalCloseBtn.onclick = () => { infoModal.style.display = 'none'; };
+            window.onclick = (event) => {
+                if (event.target === infoModal) {
+                    infoModal.style.display = 'none';
+                }
+            };
+        }
+
+
+        // Event Listeners
+        window.addEventListener('resize', () => {
+            // Delay init on resize slightly to avoid performance hit during rapid resize
+            clearTimeout(window.resizeTimeout);
+            window.resizeTimeout = setTimeout(init, 250);
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouse.x = null;
+            mouse.y = null;
+        });
+
+        // Liftoff!
+        setupControls();
+        init();
+        requestAnimationFrame(animate);
+
+    </script>
+</body>
+</html>

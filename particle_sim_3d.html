@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>10W++ 3D Particle Emergence (Corrected)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000510;
+            color: #ddeeff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            height: 100vh;
+        }
+
+        #simulationContainer {
+            flex-grow: 1;
+            display: flex;
+            position: relative;
+            background-color: #000510; /* Fallback if canvas is transparent */
+        }
+
+        canvas#particleCanvas3D { /* Specific ID for the 3D canvas */
+            display: block;
+            width: 100%;
+            height: 100%;
+            outline: none; /* Remove focus outline */
+        }
+
+        #title { /* Positioned within simulationContainer */
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.5em;
+            color: rgba(100, 200, 255, 0.7);
+            text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        #controlPanel {
+            width: 22%; /* Slightly wider for 3D controls */
+            min-width: 300px;
+            max-width: 380px;
+            background-color: #0a1020;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            border-left: 1px solid #203050;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 10;
+        }
+
+        .control-group {
+            background-color: #101828;
+            padding: 10px 12px;
+            border-radius: 4px;
+            border: 1px solid #203050;
+        }
+        
+        .control-group h4 { /* For section titles like Camera Controls */
+            margin-top: 0;
+            margin-bottom: 8px;
+            color: #70b0ff;
+            font-size: 0.9em;
+            border-bottom: 1px solid #203050;
+            padding-bottom: 5px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9em;
+            color: #a0f0ff;
+        }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 3px;
+        }
+
+        .control-group input[type="range"] {
+            flex-grow: 1;
+            cursor: pointer;
+            accent-color: #00aaff;
+        }
+
+        .control-group .nudge-btn, .control-group .info-btn {
+            background-color: #203050;
+            color: #a0f0ff;
+            border: none;
+            border-radius: 3px;
+            padding: 3px 7px;
+            font-size: 0.85em;
+            cursor: pointer;
+            min-width: 22px;
+            text-align: center;
+        }
+        .control-group .nudge-btn:hover, .control-group .info-btn:hover {
+            background-color: #304060;
+        }
+
+        .control-group .value-display {
+            font-size: 0.8em;
+            color: #80c0ff;
+            min-width: 35px;
+            text-align: right;
+        }
+        
+        .control-button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95em;
+            text-align: center;
+            transition: background-color 0.2s;
+            width: 100%; /* Make buttons full width in their group */
+        }
+        .control-button:hover {
+            background-color: #0099ff;
+        }
+        .camera-instructions p {
+            font-size: 0.85em;
+            color: #90c0ee;
+            margin: 4px 0;
+        }
+
+        /* Modal Styles - same as before */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); justify-content: center; align-items: center; }
+        .modal-content { background-color: #101828; color: #ddeeff; margin: auto; padding: 25px; border: 1px solid #304060; border-radius: 8px; width: 80%; max-width: 500px; box-shadow: 0 5px 20px rgba(0,120,255,0.2); }
+        .modal-content h3 { margin-top: 0; color: #a0f0ff; }
+        .modal-close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .modal-close-btn:hover, .modal-close-btn:focus { color: #fff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div id="simulationContainer">
+        <canvas id="particleCanvas3D"></canvas>
+        <div id="title">Gemini's Mindblown 3D Emergence v10W++</div>
+    </div>
+
+    <div id="controlPanel">
+        <!-- Controls will be dynamically added here -->
+    </div>
+
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close-btn">×</span>
+            <h3 id="modalTitle">Parameter Information</h3>
+            <p id="modalDescription">Description will load here.</p>
+        </div>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+        "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const canvas = document.getElementById('particleCanvas3D');
+        const controlPanel = document.getElementById('controlPanel');
+        const simContainer = document.getElementById('simulationContainer');
+        
+        const infoModal = document.getElementById('infoModal');
+        const modalCloseBtn = infoModal.querySelector('.modal-close-btn');
+        const modalTitleElem = infoModal.querySelector('#modalTitle');
+        const modalDescriptionElem = infoModal.querySelector('#modalDescription');
+
+        let scene, camera, renderer, controls;
+        let particles = [];
+        let particleSystem; // THREE.Points object
+        let positions, colors; // For BufferGeometry attributes
+        
+        let mouse = new THREE.Vector2(); // For raycasting, Normalized Device Coordinates
+        let mouseWorldPosition = new THREE.Vector3(); // 3D point of mouse influence
+        let mousePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // Plane at Z=0 for mouse projection
+        let raycaster = new THREE.Raycaster();
+        let isMouseInteracting = false; // To distinguish from OrbitControls drag
+        let mouseAttractMode = true;
+
+        // Trail effect components
+        let trailScene, trailCamera, trailMaterial, trailPlane;
+
+        const simParams = {
+            numParticles: 300,
+            particleSize: 5, // Visual size for PointsMaterial
+            maxVelocity: 1.5,
+            damping: 0.98,
+            gravityStrength: 0.002,
+            repulsionStrength: 0.5,
+            interactionRadius: 25, // Actual radius, squared internally
+            repulsionRadius: 4,    // Actual radius, squared internally
+            mouseStrength: 0.05,
+            mouseInfluenceRadius: 30, // Actual radius, squared internally
+            trailAlpha: 0.2, // Opacity of the fade effect for trails
+            simulationBoxSize: 50, // Half-size of the cube (center is 0,0,0)
+        };
+        
+        let INTERACTION_RADIUS_SQ, REPULSION_RADIUS_SQ, MOUSE_INFLUENCE_RADIUS_SQ;
+
+        const paramConfigs = [
+            { id: 'numParticles', label: 'Particle Count', min: 50, max: 2000, step: 50, initial: simParams.numParticles, desc: 'Number of particles. Requires "Reset Simulation". High counts impact performance.' },
+            { id: 'particleSize', label: 'Particle Visual Size', min: 1, max: 20, step: 0.5, initial: simParams.particleSize, desc: 'Visual size of the particles in the 3D view.', format: v => v.toFixed(1) },
+            { id: 'gravityStrength', label: 'Gravity Strength', min: 0, max: 0.01, step: 0.0001, initial: simParams.gravityStrength, desc: 'Strength of long-range 3D attraction.', format: v => v.toFixed(4) },
+            { id: 'repulsionStrength', label: 'Repulsion Strength', min: 0, max: 2.0, step: 0.02, initial: simParams.repulsionStrength, desc: 'Strength of short-range 3D repulsion.', format: v => v.toFixed(2) },
+            { id: 'repulsionRadius', label: 'Repulsion Radius', min: 1, max: 15, step: 0.2, initial: simParams.repulsionRadius, desc: 'Distance for repulsion force.', format: v => v.toFixed(1) },
+            { id: 'interactionRadius', label: 'Interaction Radius', min: 10, max: 80, step: 1, initial: simParams.interactionRadius, desc: 'Max distance for gravity/repulsion calculations.' },
+            { id: 'mouseStrength', label: 'Mouse Strength', min: 0, max: 0.2, step: 0.002, initial: simParams.mouseStrength, desc: 'How strongly mouse influences particles in 3D.', format: v => v.toFixed(3) },
+            { id: 'mouseInfluenceRadius', label: 'Mouse Influence Radius', min: 5, max: 100, step: 1, initial: simParams.mouseInfluenceRadius, desc: 'Radius of mouse influence in 3D world units.' },
+            { id: 'damping', label: 'Damping Factor', min: 0.900, max: 0.999, step: 0.001, initial: simParams.damping, desc: 'Energy loss per frame. (0.999 = low damping)', format: v => v.toFixed(3) },
+            { id: 'maxVelocity', label: 'Max Velocity', min: 0.2, max: 5, step: 0.1, initial: simParams.maxVelocity, desc: 'Maximum speed a particle can achieve.', format: v => v.toFixed(1) },
+            { id: 'trailAlpha', label: 'Trail Fade Opacity', min: 0.01, max: 0.8, step: 0.01, initial: simParams.trailAlpha, desc: 'Opacity of the fade effect for trails. Higher = shorter trails.', format: v => v.toFixed(2) },
+            { id: 'simulationBoxSize', label: 'Simulation Box Half-Size', min: 20, max: 150, step: 5, initial: simParams.simulationBoxSize, desc: 'Half the side length of the cubic simulation area. Requires "Reset Simulation".' }
+        ];
+        
+        class Particle3D {
+            constructor(x, y, z, index) {
+                this.position = new THREE.Vector3(x, y, z);
+                this.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 0.5
+                );
+                this.mass = 1.0; // Simplified mass for now
+                this.baseHue = Math.random() * 60 + 180; // Blues/Cyans
+                this.index = index; // Index in the BufferGeometry attributes
+            }
+
+            update(deltaTime) {
+                this.velocity.multiplyScalar(simParams.damping);
+
+                const speed = this.velocity.length();
+                if (speed > simParams.maxVelocity) {
+                    this.velocity.multiplyScalar(simParams.maxVelocity / speed);
+                }
+
+                this.position.addScaledVector(this.velocity, deltaTime);
+
+                // Boundary conditions (reflection)
+                const B = simParams.simulationBoxSize;
+                if (this.position.x < -B || this.position.x > B) { this.position.x = Math.max(-B, Math.min(B, this.position.x)); this.velocity.x *= -0.7; }
+                if (this.position.y < -B || this.position.y > B) { this.position.y = Math.max(-B, Math.min(B, this.position.y)); this.velocity.y *= -0.7; }
+                if (this.position.z < -B || this.position.z > B) { this.position.z = Math.max(-B, Math.min(B, this.position.z)); this.velocity.z *= -0.7; }
+            
+                // Update BufferGeometry
+                positions[this.index * 3] = this.position.x;
+                positions[this.index * 3 + 1] = this.position.y;
+                positions[this.index * 3 + 2] = this.position.z;
+
+                const currentSpeed = this.velocity.length();
+                const lightness = 0.5 + Math.min(currentSpeed * 0.3, 0.4); // 0.5 to 0.9
+                const saturation = 0.7 + Math.min(currentSpeed * 0.2, 0.3); // 0.7 to 1.0
+                const color = new THREE.Color();
+                color.setHSL(this.baseHue / 360, saturation, lightness);
+                colors[this.index * 3] = color.r;
+                colors[this.index * 3 + 1] = color.g;
+                colors[this.index * 3 + 2] = color.b;
+            }
+
+            applyForce(force) {
+                // F = ma => a = F/m. Assuming m=1 for simplicity here
+                this.velocity.addScaledVector(force, 1 / this.mass);
+            }
+        }
+
+        function updateDerivedParams() {
+            INTERACTION_RADIUS_SQ = Math.pow(simParams.interactionRadius, 2);
+            REPULSION_RADIUS_SQ = Math.pow(simParams.repulsionRadius, 2);
+            MOUSE_INFLUENCE_RADIUS_SQ = Math.pow(simParams.mouseInfluenceRadius, 2);
+        }
+
+        function initScene() {
+            scene = new THREE.Scene();
+            
+            const aspect = simContainer.clientWidth / simContainer.clientHeight;
+            camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+            camera.position.z = simParams.simulationBoxSize * 1.8;
+            camera.position.y = simParams.simulationBoxSize * 0.5;
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+            renderer.setSize(simContainer.clientWidth, simContainer.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.autoClear = false; // For trail effect
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 5;
+            controls.maxDistance = simParams.simulationBoxSize * 5;
+            controls.target.set(0,0,0);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+            scene.add(ambientLight);
+            
+            // Helper: Visual cue for simulation box
+            // const boxGeom = new THREE.BoxGeometry(simParams.simulationBoxSize*2, simParams.simulationBoxSize*2, simParams.simulationBoxSize*2);
+            // const boxMat = new THREE.MeshBasicMaterial({color: 0x222222, wireframe: true, transparent: true, opacity: 0.3});
+            // const boxMesh = new THREE.Mesh(boxGeom, boxMat);
+            // scene.add(boxMesh);
+
+            trailScene = new THREE.Scene();
+            trailCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+            const trailGeometry = new THREE.PlaneGeometry(2, 2);
+            trailMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000510,
+                transparent: true,
+                opacity: simParams.trailAlpha,
+                depthTest: false,
+                depthWrite: false
+            });
+            trailPlane = new THREE.Mesh(trailGeometry, trailMaterial);
+            trailScene.add(trailPlane);
+
+            // *** MOVED EVENT LISTENERS HERE ***
+            renderer.domElement.addEventListener('pointermove', onPointerMove);
+            renderer.domElement.addEventListener('pointerdown', onPointerDown);
+            renderer.domElement.addEventListener('pointerup', onPointerUp);
+            renderer.domElement.addEventListener('pointerleave', () => { isMouseInteracting = false; });
+        }
+        
+        function initParticles() {
+            particles = [];
+            
+            const geometry = new THREE.BufferGeometry();
+            positions = new Float32Array(simParams.numParticles * 3);
+            colors = new Float32Array(simParams.numParticles * 3);
+
+            const B = simParams.simulationBoxSize * 0.8; 
+            for (let i = 0; i < simParams.numParticles; i++) {
+                const p = new Particle3D(
+                    (Math.random() - 0.5) * 2 * B,
+                    (Math.random() - 0.5) * 2 * B,
+                    (Math.random() - 0.5) * 2 * B,
+                    i
+                );
+                particles.push(p);
+                p.position.toArray(positions, i * 3);
+                const color = new THREE.Color();
+                color.setHSL(p.baseHue / 360, 1.0, 0.7);
+                color.toArray(colors, i * 3);
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const particleTexture = new THREE.TextureLoader().load('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="30" fill="rgba(255,255,255,1)"/></svg>');
+
+            const material = new THREE.PointsMaterial({
+                size: simParams.particleSize,
+                map: particleTexture,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false, 
+                transparent: true,
+                sizeAttenuation: true,
+            });
+
+            if (particleSystem) scene.remove(particleSystem);
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+            updateDerivedParams();
+        }
+
+
+        function handleInteractions3D(deltaTime) {
+            const tempForce = new THREE.Vector3();
+
+            for (let i = 0; i < particles.length; i++) {
+                const p1 = particles[i];
+                
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p2 = particles[j];
+                    tempForce.subVectors(p2.position, p1.position);
+                    const distSq = tempForce.lengthSq();
+
+                    if (distSq < INTERACTION_RADIUS_SQ && distSq > 0.0001) {
+                        const dist = Math.sqrt(distSq);
+                        tempForce.normalize();
+
+                        const gravity = (simParams.gravityStrength * p1.mass * p2.mass) / distSq; 
+                        p1.velocity.addScaledVector(tempForce, gravity * deltaTime);
+                        p2.velocity.addScaledVector(tempForce, -gravity * deltaTime);
+
+                        if (distSq < REPULSION_RADIUS_SQ) {
+                            const repulsion = simParams.repulsionStrength * (1 - dist / simParams.repulsionRadius);
+                            p1.velocity.addScaledVector(tempForce, -repulsion * deltaTime);
+                            p2.velocity.addScaledVector(tempForce, repulsion * deltaTime);
+                        }
+                    }
+                }
+
+                if (isMouseInteracting && mouseWorldPosition) {
+                    tempForce.subVectors(mouseWorldPosition, p1.position);
+                    const distSqMouse = tempForce.lengthSq();
+
+                    if (distSqMouse < MOUSE_INFLUENCE_RADIUS_SQ && distSqMouse > 0.01) {
+                        const distMouse = Math.sqrt(distSqMouse);
+                        tempForce.normalize();
+                        
+                        let influence = simParams.mouseStrength * (1 - distMouse / simParams.mouseInfluenceRadius);
+                        if (!mouseAttractMode) influence *= -1.5; 
+                        
+                        p1.velocity.addScaledVector(tempForce, influence * deltaTime);
+                    }
+                }
+            }
+        }
+        
+        let lastTime = 0;
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = Math.min((currentTime - (lastTime || currentTime)) / 1000 * 60, 3); 
+            lastTime = currentTime;
+
+            controls.update(); 
+
+            trailMaterial.opacity = simParams.trailAlpha;
+            renderer.render(trailScene, trailCamera); 
+            renderer.clearDepth(); 
+
+            handleInteractions3D(deltaTime);
+
+            particles.forEach(p => p.update(deltaTime));
+            
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            particleSystem.geometry.attributes.color.needsUpdate = true;
+            particleSystem.material.size = simParams.particleSize; 
+
+            renderer.render(scene, camera);
+        }
+
+        function setupControls() {
+            // Camera Controls Info
+            const cameraGroup = document.createElement('div');
+            cameraGroup.className = 'control-group camera-instructions';
+            cameraGroup.innerHTML = `<h4>Camera Controls</h4>
+                <p><b>Orbit:</b> Left-Click + Drag</p>
+                <p><b>Zoom:</b> Mouse Wheel</p>
+                <p><b>Pan:</b> Right-Click + Drag</p>`;
+            controlPanel.appendChild(cameraGroup);
+            
+            // Mouse Interaction Toggle (Particles)
+            const mouseToggleGroup = document.createElement('div');
+            mouseToggleGroup.className = 'control-group';
+            const mouseModeButton = document.createElement('button');
+            mouseModeButton.id = 'mouseModeButton';
+            mouseModeButton.className = 'control-button';
+            mouseModeButton.textContent = `Particle Mouse: ${mouseAttractMode ? "ATTRACT" : "REPEL"}`;
+            mouseModeButton.onclick = () => {
+                mouseAttractMode = !mouseAttractMode;
+                mouseModeButton.textContent = `Particle Mouse: ${mouseAttractMode ? "ATTRACT" : "REPEL"}`;
+            };
+            mouseToggleGroup.appendChild(mouseModeButton);
+            controlPanel.appendChild(mouseToggleGroup);
+
+            paramConfigs.forEach(param => {
+                const group = document.createElement('div');
+                group.className = 'control-group';
+                const label = document.createElement('label');
+                label.setAttribute('for', param.id + '-slider');
+                label.textContent = param.label + ': ';
+                const valueDisplay = document.createElement('span');
+                valueDisplay.id = param.id + '-value';
+                valueDisplay.className = 'value-display';
+                const initialFormattedValue = param.format ? param.format(param.initial) : param.initial;
+                valueDisplay.textContent = initialFormattedValue;
+                label.appendChild(valueDisplay);
+
+                const sliderContainer = document.createElement('div');
+                sliderContainer.className = 'slider-container';
+                const minusBtn = document.createElement('button');
+                minusBtn.className = 'nudge-btn'; minusBtn.textContent = '-';
+                const slider = document.createElement('input');
+                slider.type = 'range'; slider.id = param.id + '-slider';
+                slider.min = param.min; slider.max = param.max; slider.step = param.step; slider.value = param.initial;
+                const plusBtn = document.createElement('button');
+                plusBtn.className = 'nudge-btn'; plusBtn.textContent = '+';
+                const infoBtn = document.createElement('button');
+                infoBtn.className = 'info-btn'; infoBtn.textContent = '?';
+                infoBtn.dataset.paramId = param.id; infoBtn.dataset.paramLabel = param.label; infoBtn.dataset.paramDesc = param.desc;
+
+                slider.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    simParams[param.id] = val;
+                    valueDisplay.textContent = param.format ? param.format(val) : val;
+                    if (param.id === 'repulsionRadius' || param.id === 'interactionRadius' || param.id === 'mouseInfluenceRadius') {
+                        updateDerivedParams();
+                    }
+                });
+                minusBtn.addEventListener('click', () => { slider.value = Math.max(param.min, parseFloat(slider.value) - param.step); slider.dispatchEvent(new Event('input')); });
+                plusBtn.addEventListener('click', () => { slider.value = Math.min(param.max, parseFloat(slider.value) + param.step); slider.dispatchEvent(new Event('input')); });
+                infoBtn.addEventListener('click', (e) => { modalTitleElem.textContent = e.target.dataset.paramLabel; modalDescriptionElem.textContent = e.target.dataset.paramDesc; infoModal.style.display = 'flex'; });
+                
+                group.appendChild(label);
+                sliderContainer.appendChild(minusBtn); sliderContainer.appendChild(slider); sliderContainer.appendChild(plusBtn); sliderContainer.appendChild(infoBtn);
+                group.appendChild(sliderContainer);
+                controlPanel.appendChild(group);
+            });
+
+            const resetGroup = document.createElement('div');
+            resetGroup.className = 'control-group';
+            const resetButton = document.createElement('button');
+            resetButton.id = 'resetButton'; resetButton.className = 'control-button';
+            resetButton.textContent = 'Reset Simulation';
+            resetButton.onclick = () => { fullReset(); };
+            resetGroup.appendChild(resetButton);
+            controlPanel.appendChild(resetGroup);
+
+            modalCloseBtn.onclick = () => { infoModal.style.display = 'none'; };
+            window.onclick = (event) => { if (event.target === infoModal) infoModal.style.display = 'none'; };
+        }
+        
+        function onWindowResize() {
+            // *** ADDED GUARD CLAUSE ***
+            if (!camera || !renderer) return;
+
+            const newWidth = simContainer.clientWidth;
+            const newHeight = simContainer.clientHeight;
+            camera.aspect = newWidth / newHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(newWidth, newHeight);
+        }
+
+        function onPointerMove(event) {
+            if (event.buttons === 0) {
+                 isMouseInteracting = true;
+            }
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            raycaster.ray.intersectPlane(mousePlane, mouseWorldPosition);
+        }
+        
+        function onPointerDown(event) {
+            // Logic for direct mouse interaction could go here
+        }
+
+        function onPointerUp(event) {
+            isMouseInteracting = false; 
+        }
+        
+        function fullReset() {
+            initParticles(); 
+            if (controls) controls.target.set(0,0,0); 
+            if (camera) {
+                camera.position.z = simParams.simulationBoxSize * 1.8;
+                camera.position.y = simParams.simulationBoxSize * 0.5;
+                camera.lookAt(0,0,0);
+            }
+        }
+
+        // --- Liftoff Sequence ---
+        window.addEventListener('resize', onWindowResize); // This is safe now due to guard in onWindowResize
+
+        initScene();      // Initializes scene, camera, renderer, AND sets up renderer.domElement listeners
+        setupControls();  // Sets up the UI panel
+        fullReset();      // Initializes particles and resets camera to defaults
+        animate(0);       // Starts the animation loop
+
+    </script>
+</body>
+</html>

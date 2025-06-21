@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini's Kingsport Life Sim v0.6</title>
+    
+    <!-- Leaflet.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+
+    <style>
+        :root {
+            --bg-color: #0a0a14;
+            --panel-bg-color: #1a1a2a;
+            --text-color: #e0e0ff;
+            --primary-color: #5bff97;
+            --primary-glow: rgba(91, 255, 151, 0.5);
+            --border-color: #33334a;
+            --input-bg: #2a2a3a;
+            --good-color: #4d9fff;
+            --bad-color: #ff4d88;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            display: flex;
+        }
+
+        #simulation-container { flex-grow: 1; height: 100vh; position: relative; }
+        #map { width: 100%; height: 100%; background-color: #050508; }
+        .leaflet-tile-pane { filter: grayscale(1) invert(1) contrast(0.8) brightness(1.1); }
+        #loader { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(10, 10, 20, 0.9); z-index: 10000; display: flex; justify-content: center; align-items: center; font-size: 2em; text-shadow: 0 0 10px var(--primary-glow); color: var(--primary-color); }
+
+        #readout-bar { position: absolute; bottom: 0; left: 0; width: 100%; background-color: rgba(26, 26, 42, 0.85); padding: 5px 15px; box-sizing: border-box; z-index: 1001; display: flex; justify-content: space-around; align-items: center; font-size: 0.8em; pointer-events: none; color: #aaa; font-family: 'Courier New', Courier, monospace; }
+        #readout-bar > span > span { color: var(--primary-color); font-weight: bold; }
+
+        #control-panel { width: 320px; min-width: 320px; height: 100vh; background-color: var(--panel-bg-color); padding: 20px; box-sizing: border-box; overflow-y: auto; border-left: 1px solid var(--border-color); display: flex; flex-direction: column; z-index: 2000; }
+        h1 { text-align: center; margin-top: 0; margin-bottom: 20px; font-weight: 300; color: var(--primary-color); text-shadow: 0 0 8px var(--primary-glow); }
+        .control-group { margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
+        .control-group h3 { margin-top: 0; margin-bottom: 15px; font-weight: 500; }
+        .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        label { font-size: 0.9em; }
+        .value-display { font-weight: bold; color: var(--primary-color); min-width: 50px; text-align: right; }
+        input[type="range"] { -webkit-appearance: none; width: 100%; height: 5px; background: var(--input-bg); outline: none; border-radius: 5px; margin: 8px 0; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: var(--primary-color); cursor: pointer; border-radius: 50%; box-shadow: 0 0 8px var(--primary-glow); }
+        .leaflet-control-layers { background: var(--panel-bg-color); border: 1px solid var(--border-color); color: var(--text-color); }
+        
+        /* --- NEW: Inspector Panel --- */
+        #inspector-panel {
+            margin-top: auto;
+            border-top: 2px solid var(--primary-color);
+            padding-top: 15px;
+        }
+        #inspector-panel h3 {
+            margin-top: 0;
+            text-align: center;
+        }
+        .inspector-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .inspector-label { color: #aaa; }
+        .inspector-value { font-weight: bold; }
+        .inspector-value.good { color: var(--good-color); }
+        .inspector-value.bad { color: var(--bad-color); }
+        #inspector-close-btn {
+            width: 100%; background: var(--input-bg); border: 1px solid #888; color: #888;
+            padding: 5px; font-size: 0.8em; cursor: pointer; border-radius: 4px; margin-top: 10px;
+        }
+        #inspector-close-btn:hover { background: #888; color: var(--panel-bg-color); }
+
+        /* --- NEW: Selected person marker style --- */
+        .selected-person-marker {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.5); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="simulation-container">
+        <div id="map"></div>
+        <div id="loader">Fetching Kingsport Street Data...</div>
+        <div id="readout-bar">
+            <span>Lat: <span id="lat-readout">...</span></span>
+            <span>Lon: <span id="lon-readout">...</span></span>
+            <span>Zoom: <span id="zoom-readout">...</span></span>
+        </div>
+    </div>
+
+    <div id="control-panel">
+        <div id="main-controls">
+            <h1>Kingsport Life Sim</h1>
+            <div class="control-group">
+                <h3>City Parameters</h3>
+                <div class="control-row">
+                    <label for="density-slider">People per Block</label>
+                    <span id="density-value" class="value-display"></span>
+                </div>
+                <input type="range" id="density-slider" min="10" max="100" step="5">
+                <div style="text-align: right; font-size: 0.8em; color: #aaa;">
+                    Current Population: <span id="current-population" style="color: var(--primary-color); font-weight: bold;">0</span>
+                </div>
+                <div class="control-row" style="margin-top: 15px;">
+                    <label for="speed-slider">Movement Speed</label>
+                    <span id="speed-value" class="value-display"></span>
+                </div>
+                <input type="range" id="speed-slider" min="0.00001" max="0.0002" step="0.00001">
+            </div>
+             <div class="control-group">
+                <h3>Info</h3>
+                <p style="font-size: 0.8em; color: #aaa; line-height: 1.4;">
+                    Click a person to inspect their attributes. See what stories unfold.
+                    <br><br>
+                    <span style="color: var(--good-color);">■</span> Good Person<br>
+                    <span style="color: var(--bad-color);">■</span> Bad Person<br>
+                    Brighter colors indicate higher wealth.
+                </p>
+            </div>
+        </div>
+        <!-- NEW: Inspector panel placeholder -->
+        <div id="inspector-panel" style="display: none;"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // --- CONSTANTS AND ENUMS ---
+        const PersonState = { WANDERING: 'Wandering', GOING_HOME: 'Going Home', SOCIALIZING: 'Socializing', DATING: 'Dating' };
+        const RelationshipStatus = { SINGLE: 'Single', COUPLED: 'Coupled' };
+        const Alignment = { GOOD: 'Good', BAD: 'Bad' };
+        const Gender = { MALE: 'Male', FEMALE: 'Female' };
+        
+        const INTERACTION_RADIUS = 0.00015; // in lat/lon degrees
+        const INTERACTION_COOLDOWN = 5000; // 5 seconds
+        const DATING_DURATION = 5000; // 5 seconds
+        const COUPLING_CHANCE = 0.6; // 60% chance to couple after dating
+        const HELP_CHANCE = 0.5;
+        const ROB_CHANCE = 0.3;
+
+        class Person {
+            constructor(id, streetGraph) {
+                this.id = id;
+                this.streetGraph = streetGraph;
+                const nodeIds = Array.from(streetGraph.keys());
+                
+                // --- Attributes ---
+                this.gender = Math.random() < 0.5 ? Gender.MALE : Gender.FEMALE;
+                this.age = Math.floor(20 + Math.random() * 30);
+                this.alignment = Math.random() < 0.7 ? Alignment.GOOD : Alignment.BAD;
+                this.wealth = Math.random();
+                this.sociability = Math.random();
+                
+                this.relationshipStatus = RelationshipStatus.SINGLE;
+                this.partnerIds = [];
+                this.isSeeking = this.sociability > 0.4;
+                
+                this.energy = 1.0;
+                this.homeNodeId = nodeIds[Math.floor(Math.random() * nodeIds.length)];
+                this.currentState = PersonState.WANDERING;
+
+                // --- Movement ---
+                this.currentNodeId = nodeIds[Math.floor(Math.random() * nodeIds.length)];
+                this.targetNodeId = null;
+                this.sourceNodeId = null;
+                this.pickNewTarget();
+                this.travelProgress = 0;
+                this.speed = simParams.speed * (0.75 + Math.random() * 0.5);
+
+                // --- State & Timers ---
+                this.lastInteractionTimestamp = 0;
+                this.datingTimer = 0;
+                this.isPaused = false;
+
+                // --- Visuals ---
+                const startNode = this.streetGraph.get(this.currentNodeId);
+                this.marker = L.circleMarker([startNode.lat, startNode.lon], {
+                    radius: 4,
+                    fillColor: this.getColor(),
+                    color: "#fff",
+                    weight: 0.5,
+                    opacity: 0.8,
+                    fillOpacity: 0.8
+                }).addTo(map);
+
+                this.marker.on('click', () => {
+                    displayPersonInfo(this);
+                });
+            }
+
+            // --- Main Update Loop for this Person ---
+            update(deltaTime) {
+                if (this.isPaused) return;
+
+                this._updateState(deltaTime);
+                this._updateMovement(deltaTime);
+                this.checkForInteractions();
+
+                this.energy -= 0.00001 * deltaTime; // Slowly lose energy
+            }
+
+            _updateState(deltaTime) {
+                if (this.currentState === PersonState.DATING) {
+                    this.datingTimer -= deltaTime;
+                    if (this.datingTimer <= 0) {
+                        this._resolveDate();
+                    }
+                    return; // Don't change state while dating
+                }
+
+                if (this.energy < 0.2 && this.currentState !== PersonState.GOING_HOME) {
+                    this.currentState = PersonState.GOING_HOME;
+                    this.pickNewTarget();
+                } else if (this.energy > 0.95 && this.currentState === PersonState.GOING_HOME) {
+                    this.currentState = PersonState.WANDERING; // Arrived home, replenished
+                    this.pickNewTarget();
+                } else if (this.isSeeking && this.relationshipStatus === RelationshipStatus.SINGLE && this.sociability > 0.6) {
+                    this.currentState = PersonState.SOCIALIZING;
+                }
+            }
+
+            _updateMovement(deltaTime) {
+                if (this.relationshipStatus === RelationshipStatus.COUPLED && this.partnerIds.length > 0) {
+                    const partner = people.find(p => p.id === this.partnerIds[0]);
+                    // Am I the follower?
+                    if (partner && partner.partnerIds[0] === this.id) {
+                         this.targetNodeId = partner.currentNodeId;
+                    }
+                }
+
+                if (!this.currentNodeId || !this.targetNodeId) return;
+
+                this.travelProgress += this.speed * deltaTime;
+
+                if (this.travelProgress >= 1.0) {
+                    // Arrived at target
+                    this.currentNodeId = this.targetNodeId;
+                    if(this.currentNodeId === this.homeNodeId) this.energy = 1.0;
+                    this.pickNewTarget();
+                    this.travelProgress = 0;
+                }
+                
+                const source = this.streetGraph.get(this.sourceNodeId);
+                const target = this.streetGraph.get(this.targetNodeId);
+                if (!source || !target) return;
+
+                const lat = source.lat + (target.lat - source.lat) * this.travelProgress;
+                const lon = source.lon + (target.lon - source.lon) * this.travelProgress;
+                this.marker.setLatLng([lat, lon]);
+            }
+            
+            checkForInteractions() {
+                const now = performance.now();
+                if (now - this.lastInteractionTimestamp < INTERACTION_COOLDOWN) return;
+
+                const nearbyPeople = spatialGrid.getNearby(this.marker.getLatLng());
+                for (const otherPerson of nearbyPeople) {
+                    if (this.id === otherPerson.id || this.partnerIds.includes(otherPerson.id)) continue;
+
+                    const dist = this.marker.getLatLng().distanceTo(otherPerson.marker.getLatLng());
+                    if (dist < 20) { // Approx 20 meters
+                        this.interact(otherPerson);
+                        this.lastInteractionTimestamp = now;
+                        otherPerson.lastInteractionTimestamp = now;
+                        return;
+                    }
+                }
+            }
+
+            interact(otherPerson) {
+                // Try to date
+                if (this.isSeeking && otherPerson.isSeeking && 
+                    this.relationshipStatus === RelationshipStatus.SINGLE &&
+                    otherPerson.relationshipStatus === RelationshipStatus.SINGLE &&
+                    this.gender !== otherPerson.gender)
+                {
+                    this._startDating(otherPerson);
+                    return;
+                }
+
+                // Try to rob
+                if (this.alignment === Alignment.BAD && this.wealth < otherPerson.wealth && Math.random() < ROB_CHANCE) {
+                    this.rob(otherPerson);
+                    return;
+                }
+
+                // Try to help
+                if (this.alignment === Alignment.GOOD && otherPerson.wealth < 0.2 && Math.random() < HELP_CHANCE) {
+                    this.help(otherPerson);
+                    return;
+                }
+            }
+
+            help(otherPerson) {
+                const amount = Math.min(this.wealth * 0.1, 0.05); // Give 10% or 0.05, whichever is smaller
+                this.wealth -= amount;
+                otherPerson.wealth += amount;
+            }
+
+            rob(otherPerson) {
+                const amount = Math.min(otherPerson.wealth * 0.2, 0.1); // Steal 20% or 0.1
+                this.wealth += amount;
+                otherPerson.wealth -= amount;
+            }
+            
+            _startDating(otherPerson) {
+                this.currentState = PersonState.DATING;
+                otherPerson.currentState = PersonState.DATING;
+                this.datingTimer = DATING_DURATION;
+                otherPerson.datingTimer = DATING_DURATION;
+                this.isPaused = true;
+                otherPerson.isPaused = true;
+                // Store potential partner to resolve date later
+                this.potentialPartnerId = otherPerson.id;
+                otherPerson.potentialPartnerId = this.id;
+            }
+
+            _resolveDate() {
+                this.isPaused = false;
+                const otherPerson = people.find(p => p.id === this.potentialPartnerId);
+                if (otherPerson) {
+                    otherPerson.isPaused = false;
+                    if (Math.random() < COUPLING_CHANCE) {
+                        this.relationshipStatus = RelationshipStatus.COUPLED;
+                        otherPerson.relationshipStatus = RelationshipStatus.COUPLED;
+                        this.partnerIds = [otherPerson.id];
+                        otherPerson.partnerIds = [this.id];
+                        this.isSeeking = false;
+                        otherPerson.isSeeking = false;
+                    }
+                    this.currentState = PersonState.WANDERING;
+                    otherPerson.currentState = PersonState.WANDERING;
+                }
+            }
+
+            pickNewTarget() {
+                if (this.currentState === PersonState.GOING_HOME) {
+                    // Basic pathfinding stub - for now just moves towards general direction
+                    this.targetNodeId = this.homeNodeId;
+                } else if(this.relationshipStatus === RelationshipStatus.COUPLED && this.partnerIds.length > 0) {
+                     const partner = people.find(p => p.id === this.partnerIds[0]);
+                     // I am the leader
+                     if (partner && partner.partnerIds[0] !== this.id) {
+                         this._pickRandomNeighbor();
+                     }
+                }
+                else {
+                    this._pickRandomNeighbor();
+                }
+            }
+
+            _pickRandomNeighbor() {
+                 const neighbors = this.streetGraph.get(this.currentNodeId)?.neighbors;
+                if (!neighbors || neighbors.length === 0) {
+                    this.targetNodeId = this.sourceNodeId || this.currentNodeId;
+                } else {
+                    let potentialTargets = neighbors;
+                    if (this.sourceNodeId && neighbors.length > 1) {
+                        potentialTargets = neighbors.filter(id => id !== this.sourceNodeId);
+                    }
+                    this.targetNodeId = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
+                }
+                this.sourceNodeId = this.currentNodeId;
+            }
+
+            getColor() {
+                const hue = this.alignment === Alignment.GOOD ? 195 : 330;
+                const lightness = 40 + (this.wealth * 40);
+                return `hsl(${hue}, 100%, ${lightness}%)`;
+            }
+
+            destroy() {
+                if(this.marker) map.removeLayer(this.marker);
+            }
+        }
+        
+        // --- SPATIAL GRID FOR EFFICIENT PROXIMITY DETECTION ---
+        class SpatialGrid {
+            constructor(bounds, cellSize) {
+                this.min = bounds.getSouthWest();
+                this.max = bounds.getNorthEast();
+                this.cellSize = cellSize;
+                this.cols = Math.ceil((this.max.lng - this.min.lng) / cellSize);
+                this.grid = new Array(this.cols * Math.ceil((this.max.lat - this.min.lat) / cellSize)).fill(0).map(() => []);
+            }
+            
+            clear() {
+                for(let i=0; i<this.grid.length; i++) this.grid[i] = [];
+            }
+            
+            _getGridIndex(lat, lng) {
+                const x = Math.floor((lng - this.min.lng) / this.cellSize);
+                const y = Math.floor((lat - this.min.lat) / this.cellSize);
+                return y * this.cols + x;
+            }
+
+            add(person) {
+                const pos = person.marker.getLatLng();
+                const index = this._getGridIndex(pos.lat, pos.lng);
+                if(this.grid[index]) this.grid[index].push(person);
+            }
+
+            getNearby(latLng) {
+                const nearby = [];
+                const x = Math.floor((latLng.lng - this.min.lng) / this.cellSize);
+                const y = Math.floor((latLng.lat - this.min.lat) / this.cellSize);
+
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        const cellX = x + i;
+                        const cellY = y + j;
+                        const index = cellY * this.cols + cellX;
+                        if (this.grid[index]) {
+                            nearby.push(...this.grid[index]);
+                        }
+                    }
+                }
+                return nearby;
+            }
+        }
+
+
+        // --- GLOBAL VARS ---
+        let map;
+        let streetGraph = new Map();
+        let people = [];
+        let lastTimestamp = 0;
+        let spatialGrid;
+        let selectedPerson = null;
+        
+        const simParams = {
+            density: 20,
+            speed: 0.0001,
+        };
+        const SQUARE_METERS_PER_BLOCK = 100 * 100;
+        const MAX_POPULATION = 4000;
+
+        async function init() {
+            setupMap();
+            setupControls();
+            
+            try {
+                const osmData = await fetchStreetData();
+                parseStreetData(osmData);
+                spatialGrid = new SpatialGrid(L.latLngBounds([36.503,-82.623], [36.591,-82.493]), 0.001);
+                document.getElementById('loader').style.display = 'none';
+                updatePopulation();
+                requestAnimationFrame(animate);
+            } catch (error) {
+                document.getElementById('loader').textContent = 'Error loading map data.';
+                console.error("Failed to fetch or parse map data:", error);
+            }
+        }
+
+        function setupMap() { /* ... unchanged ... */ 
+            map = L.map('map').setView([36.5473, -82.5602], 17);
+            const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+            const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+            const baseMaps = {"Street Map": streetLayer, "Satellite": satelliteLayer};
+            streetLayer.addTo(map);
+            L.control.layers(baseMaps).addTo(map);
+            map.on('moveend zoomend', () => { updateReadoutBar(); updatePopulation(); });
+            map.on('click', clearPersonInfo);
+            updateReadoutBar();
+        }
+        function updateReadoutBar() { /* ... unchanged ... */ 
+            if (!map) return;
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            document.getElementById('lat-readout').textContent = center.lat.toFixed(4);
+            document.getElementById('lon-readout').textContent = center.lng.toFixed(4);
+            document.getElementById('zoom-readout').textContent = zoom;
+        }
+        async function fetchStreetData() { /* ... unchanged ... */ 
+            const bbox = "36.503,-82.623,36.591,-82.493"; 
+            const query = `[out:json][timeout:25];(way["highway"](bbox););(._;>;);out;`;
+            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query).replace('%20', '')}`.replace('(bbox)',`(${bbox})`);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Overpass API request failed`);
+            return response.json();
+        }
+        function parseStreetData(data) { /* ... unchanged ... */ 
+            streetGraph.clear();
+            const nodes = data.elements.filter(e => e.type === 'node');
+            const ways = data.elements.filter(e => e.type === 'way');
+            const nodeMap = new Map();
+            for (const node of nodes) nodeMap.set(node.id, { lat: node.lat, lon: node.lon });
+            for (const way of ways) {
+                for (let i = 0; i < way.nodes.length; i++) {
+                    const nodeId = way.nodes[i];
+                    if (!streetGraph.has(nodeId)) {
+                        const nodeData = nodeMap.get(nodeId);
+                        if (nodeData) streetGraph.set(nodeId, { ...nodeData, neighbors: new Set() });
+                    }
+                    if (i > 0) {
+                        const prevNodeId = way.nodes[i - 1];
+                        streetGraph.get(nodeId)?.neighbors.add(prevNodeId);
+                        streetGraph.get(prevNodeId)?.neighbors.add(nodeId);
+                    }
+                }
+            }
+            for (const node of streetGraph.values()) node.neighbors = Array.from(node.neighbors);
+        }
+        function haversineDistance(lat1, lon1, lat2, lon2) { /* ... unchanged ... */ 
+            const R = 6371e3; const phi1 = lat1*Math.PI/180; const phi2 = lat2*Math.PI/180; const dPhi = (lat2-lat1)*Math.PI/180; const dLambda = (lon2-lon1)*Math.PI/180; const a = Math.sin(dPhi/2)*Math.sin(dPhi/2) + Math.cos(phi1)*Math.cos(phi2)*Math.sin(dLambda/2)*Math.sin(dLambda/2); const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); return R*c;
+        }
+        function calculateTargetPopulation() { /* ... unchanged ... */ 
+            if (!map) return 0;
+            const bounds = map.getBounds();
+            const heightMeters = haversineDistance(bounds.getNorth(), bounds.getWest(), bounds.getSouth(), bounds.getWest());
+            const widthMeters = haversineDistance(bounds.getNorth(), bounds.getWest(), bounds.getNorth(), bounds.getEast());
+            const visibleAreaMeters = widthMeters*heightMeters;
+            const numBlocks = visibleAreaMeters/SQUARE_METERS_PER_BLOCK;
+            const population = numBlocks*simParams.density;
+            return Math.floor(Math.min(population, MAX_POPULATION));
+        }
+        function updatePopulation() { /* ... unchanged ... */
+            if (streetGraph.size === 0) return;
+            const targetPopulation = calculateTargetPopulation();
+            document.getElementById('current-population').textContent = targetPopulation;
+            while(people.length > targetPopulation) people.pop().destroy();
+            while(people.length < targetPopulation) people.push(new Person(people.length, streetGraph));
+        }
+        function setupControls() { /* ... unchanged, references updated var names */
+            const densitySlider = document.getElementById('density-slider');
+            const densityValue = document.getElementById('density-value');
+            densitySlider.value = simParams.density;
+            densityValue.textContent = simParams.density;
+            densitySlider.addEventListener('change', () => { simParams.density = Number(densitySlider.value); updatePopulation(); });
+            densitySlider.addEventListener('input', () => { densityValue.textContent = Number(densitySlider.value); });
+            const speedSlider = document.getElementById('speed-slider');
+            const speedValue = document.getElementById('speed-value');
+            speedSlider.value = simParams.speed;
+            speedValue.textContent = simParams.speed.toFixed(5);
+            speedSlider.addEventListener('input', (e) => { simParams.speed = Number(e.target.value); speedValue.textContent = simParams.speed.toFixed(5); people.forEach(p => p.speed = simParams.speed * (0.75 + Math.random() * 0.5)); });
+        }
+
+        // --- NEW/UPDATED UI FUNCTIONS ---
+        function displayPersonInfo(person) {
+            if (selectedPerson) {
+                selectedPerson.marker.getElement().classList.remove('selected-person-marker');
+            }
+            selectedPerson = person;
+            selectedPerson.marker.getElement().classList.add('selected-person-marker');
+
+            const panel = document.getElementById('inspector-panel');
+            panel.innerHTML = `
+                <h3>Inspector</h3>
+                <div class="inspector-row"><span class="inspector-label">ID:</span> <span class="inspector-value">${person.id}</span></div>
+                <div class="inspector-row"><span class="inspector-label">State:</span> <span class="inspector-value">${person.currentState}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Age:</span> <span class="inspector-value">${person.age}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Gender:</span> <span class="inspector-value">${person.gender}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Alignment:</span> <span class="inspector-value ${person.alignment.toLowerCase()}">${person.alignment}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Wealth:</span> <span class="inspector-value">${person.wealth.toFixed(2)}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Energy:</span> <span class="inspector-value">${person.energy.toFixed(2)}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Sociability:</span> <span class="inspector-value">${person.sociability.toFixed(2)}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Relationship:</span> <span class="inspector-value">${person.relationshipStatus} ${person.partnerIds.length ? `(${person.partnerIds.join(', ')})` : ''}</span></div>
+                <div class="inspector-row"><span class="inspector-label">Seeking:</span> <span class="inspector-value">${person.isSeeking}</span></div>
+                <button id="inspector-close-btn">Close</button>
+            `;
+            panel.style.display = 'block';
+
+            document.getElementById('inspector-close-btn').addEventListener('click', (e) => {
+                e.stopPropagation(); // prevent map click event
+                clearPersonInfo();
+            });
+        }
+        function clearPersonInfo() {
+            if (selectedPerson) {
+                selectedPerson.marker.getElement().classList.remove('selected-person-marker');
+                selectedPerson = null;
+            }
+            document.getElementById('inspector-panel').style.display = 'none';
+        }
+        
+        function animate(timestamp) {
+            const deltaTime = timestamp - (lastTimestamp || timestamp);
+            lastTimestamp = timestamp;
+            
+            spatialGrid.clear();
+            for(const person of people) {
+                spatialGrid.add(person);
+            }
+
+            for(const person of people) {
+                person.update(deltaTime);
+            }
+            
+            if (selectedPerson) {
+                // continuously update inspector if a person is selected
+                displayPersonInfo(selectedPerson);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        init();
+    </script>
+</body>
+</html>
